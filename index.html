@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="theme-color" content="#f7f4ee" />
+  <title>豆格 · 拼豆图纸生成器</title>
+  <link rel="stylesheet" href="./style.css?v=20260823-eraser-v6" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="豆格首页"><span class="brand-mark">豆</span><span>豆格</span></a>
+    <span class="tagline">把喜欢的图片，变成一颗颗豆子</span>
+    <span class="build-badge">橡皮切换版 v6</span>
+    <div class="privacy"><span class="status-dot"></span>图片仅在本地处理</div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="panel controls">
+      <section>
+        <div class="section-heading"><span class="step">01</span><h2>选择图片</h2></div>
+        <label class="drop-zone" id="dropZone" for="fileInput">
+          <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+          <span class="upload-icon">↥</span>
+          <strong>拖入或选择图片</strong>
+          <small>支持 JPG、PNG、WEBP</small>
+        </label>
+        <div class="file-card" id="fileCard" hidden>
+          <div class="thumb-wrap"><img id="sourceThumb" alt="原图预览" /></div>
+          <div><strong id="fileName">示例图片</strong><small id="fileMeta">本地图片</small></div>
+          <button class="icon-button" id="removeImage" title="移除图片" aria-label="移除图片">×</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-heading"><span class="step">02</span><h2>设置图纸</h2></div>
+        <div class="control-row">
+          <label>网格尺寸</label>
+          <span class="dimension-hint">横向 × 纵向</span>
+        </div>
+        <div class="dimension-inputs">
+          <label><input id="gridWidth" type="number" min="8" max="160" value="80" /><span>列</span></label>
+          <b>×</b>
+          <label><input id="gridHeight" type="number" min="8" max="160" value="40" /><span>行</span></label>
+        </div>
+        <div class="preset-row">
+          <button data-size="40x40">40 × 40</button><button data-size="80x40" class="active">80 × 40</button><button data-size="80x80">80 × 80</button>
+        </div>
+        <p class="algorithm-note">直接在原图中划分等面积区域，并计算区域内全部像素的平均值，不压缩原图。</p>
+
+        <div class="control-row palette-row">
+          <label for="colorCount">颜色数量</label>
+          <label class="color-count-input"><input id="colorCount" type="number" min="4" max="64" value="16" step="1" inputmode="numeric" /><span>色</span></label>
+        </div>
+        <p class="algorithm-note color-note">可输入 4–64；这是颜色上限，相近颜色匹配到同一 MARD 色号后，实际用色可能更少。</p>
+
+        <div class="sheet-mode" aria-label="当前图纸样式">
+          <span>▦</span><div><strong>方格图纸</strong><small>每个色块完整填满一个格子</small></div>
+        </div>
+
+        <div class="grid-guides">
+          <label><span>红线分区</span><select id="majorGridSize"><option value="5" selected>每 5 格</option><option value="10">每 10 格</option></select></label>
+          <label><span>红线样式</span><select id="majorGridStyle"><option value="solid" selected>实线</option><option value="dashed">虚线</option></select></label>
+        </div>
+
+        <label class="check-row"><span>显示细网格线<small>坐标与红色分区线始终显示</small></span><input id="showGrid" type="checkbox" checked /><i></i></label>
+        <label class="check-row"><span>显示色号<small>直接显示 MARD 编号</small></span><input id="showSymbols" type="checkbox" checked /><i></i></label>
+        <label class="check-row"><span>忽略近白背景<small>自动留空白色区域</small></span><input id="removeWhite" type="checkbox" /><i></i></label>
+      </section>
+
+      <section class="export-section">
+        <div class="section-heading"><span class="step">03</span><h2>导出图纸</h2></div>
+        <div class="button-grid">
+          <button class="primary" id="exportPng">下载高清图纸 <span>↗</span></button>
+          <button class="secondary" id="exportCsv">导出用量清单</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="canvas-toolbar">
+        <div>
+          <span class="eyebrow">实时预览</span>
+          <h1 id="projectTitle">等待你的作品</h1>
+        </div>
+        <div class="stats">
+          <span><b id="sizeStat">—</b><small>图纸尺寸</small></span>
+          <span><b id="beadStat">0</b><small>拼豆总数</small></span>
+          <span><b id="colorStat">0</b><small>实际颜色</small></span>
+        </div>
+      </div>
+
+      <div class="canvas-stage" id="canvasStage">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-art">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <h2>从一张图片开始</h2>
+          <p>上传照片、插画或像素图，马上生成你的拼豆图纸。</p>
+          <button id="useDemo">试试示例图片</button>
+        </div>
+        <div class="canvas-scroll" id="canvasScroll" hidden>
+          <div class="paint-toolbar" id="paintToolbar">
+            <button id="paintToggle" class="tool-button"><span>✎</span> 开启手动涂色</button>
+            <button id="eraserButton" class="tool-button" disabled><span>⌫</span> 留空 / 橡皮</button>
+            <button id="referenceToggle" class="tool-button reference-button" aria-pressed="false"><span>◫</span> <b>显示原图</b></button>
+            <button id="pickerButton" class="tool-button" disabled><span>⌖</span> 吸取颜色</button>
+            <label class="mard-picker"><span>MARD 色号</span><select id="mardColor" disabled></select></label>
+            <label class="custom-color" title="选择自定义颜色"><input id="customColor" type="color" value="#ef6a3a" disabled /><span>自定义颜色</span></label>
+            <button id="undoButton" class="tool-button" disabled><span>↶</span> 撤销</button>
+            <span class="paint-status" id="paintStatus">预览模式</span>
+          </div>
+          <canvas id="patternCanvas" aria-label="拼豆图纸预览"></canvas>
+        </div>
+      </div>
+
+      <div class="palette-panel" id="palettePanel" hidden>
+        <div class="palette-title"><div><span class="eyebrow">配色清单</span><h2>需要准备的豆子</h2><small>点击颜色进行手绘，点击换色可批量替换整张图中的同色格</small></div><span id="paletteSummary">共 0 颗</span></div>
+        <div class="palette-list" id="paletteList"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="replace-modal" id="replaceModal" hidden>
+    <section class="replace-dialog" role="dialog" aria-modal="true" aria-labelledby="replaceTitle">
+      <button class="replace-close" id="replaceClose" aria-label="关闭">×</button>
+      <span class="eyebrow">批量换色</span>
+      <h2 id="replaceTitle">替换整张图中的颜色</h2>
+      <p id="replaceDescription">所有使用该色号的格子都会一起改变，手绘格与数量统计也会同步更新。</p>
+      <div class="replace-comparison">
+        <div class="replace-color-card"><span id="replaceFromSwatch"></span><small>当前颜色</small><strong id="replaceFromCode">—</strong><em id="replaceFromCount">0 格</em></div>
+        <b>→</b>
+        <div class="replace-color-card"><span id="replaceToSwatch"></span><small>替换为</small><strong id="replaceToCode">—</strong><em id="replaceToHex">—</em></div>
+      </div>
+      <label class="replace-select-label" for="replaceColorSelect">选择新的 MARD 色号</label>
+      <select id="replaceColorSelect"></select>
+      <div class="replace-actions"><button id="replaceCancel">取消</button><button id="replaceConfirm" class="confirm">替换全部同色格</button></div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="./mard-palette.js?v=20260823-eraser-v6"></script>
+  <script src="./app.js?v=20260823-eraser-v6"></script>
+</body>
+</html>
