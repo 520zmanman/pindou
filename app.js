@@ -1,4 +1,4 @@
-window.PINDOU_BUILD = '2026.08.23-eraser-v6';
+window.PINDOU_BUILD = '2026.09.27-poster-pdf-v14';
 const el = id => document.getElementById(id);
 const ui = {
   fileInput: el('fileInput'), dropZone: el('dropZone'), fileCard: el('fileCard'), sourceThumb: el('sourceThumb'),
@@ -11,7 +11,10 @@ const ui = {
   undoButton: el('undoButton'), paintStatus: el('paintStatus'), replaceModal: el('replaceModal'),
   replaceClose: el('replaceClose'), replaceCancel: el('replaceCancel'), replaceConfirm: el('replaceConfirm'),
   replaceColorSelect: el('replaceColorSelect'), replaceFromSwatch: el('replaceFromSwatch'), replaceFromCode: el('replaceFromCode'),
-  replaceFromCount: el('replaceFromCount'), replaceToSwatch: el('replaceToSwatch'), replaceToCode: el('replaceToCode'), replaceToHex: el('replaceToHex')
+  replaceFromCount: el('replaceFromCount'), replaceToSwatch: el('replaceToSwatch'), replaceToCode: el('replaceToCode'), replaceToHex: el('replaceToHex'),
+  saveDraft: el('saveDraft'), clearDraft: el('clearDraft'), draftStatus: el('draftStatus'),
+  cloudDraftStatus: el('cloudDraftStatus'), restoreCloudDraft: el('restoreCloudDraft'),
+  zoomOut: el('zoomOut'), zoomValue: el('zoomValue'), zoomIn: el('zoomIn'), zoomFit: el('zoomFit')
 };
 
 const state = {
@@ -19,8 +22,16 @@ const state = {
   processedCols: 80, processedRows: 40, used: [],
   paintMode: false, pickerMode: false, selectedColor: null, drawing: false, lastPaintIndex: -1,
   history: [], cellSize: 10, gridOriginX: 0, gridOriginY: 0, customIndex: 1, showReference: false,
-  replaceSource: null, lastPaintColor: null
+  replaceSource: null, lastPaintColor: null, restoringDraft: false, draftSaveTimer: null, hasStoredDraft: false,
+  skipDraftRestore: false, imageLoadToken: 0, zoom: 1, fitZoom: true,
+  previewLogicalWidth: 0, previewLogicalHeight: 0, previewRenderScale: 1
 };
+
+const DRAFT_DB_NAME = 'douge-projects';
+const DRAFT_STORE_NAME = 'drafts';
+const DRAFT_KEY = 'current-project';
+const DRAFT_VERSION = 1;
+const DRAFT_TTL = 3 * 24 * 60 * 60 * 1000;
 
 function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
@@ -33,6 +44,167 @@ function colorDistance(a, b) {
 const MARD_COLORS = window.MARD_PALETTE.map(([code, hex]) => ({ code, name: `MARD ${code}`, hex, rgb: hexToRgb(hex) }));
 const EMPTY_KEY = '__EMPTY__';
 const EMPTY_COLOR = Object.freeze({ code: 'EMPTY', name: '无豆 / 留空', hex: 'transparent', rgb: [255, 255, 255], isEmpty: true });
+let draftDatabasePromise = null;
+
+function serializeColor(color) {
+  if (!color) return null;
+  return { code: color.code, name: color.name, hex: color.hex, rgb: [...color.rgb], isEmpty: Boolean(color.isEmpty) };
+}
+
+function deserializeColor(data) {
+  if (!data) return null;
+  if (data.isEmpty || data.code === EMPTY_COLOR.code) return EMPTY_COLOR;
+  const known = MARD_COLORS.find(color => color.code === data.code && color.hex.toUpperCase() === String(data.hex).toUpperCase());
+  if (known) return known;
+  if (!/^#[0-9A-F]{6}$/i.test(String(data.hex)) || !Array.isArray(data.rgb) || data.rgb.length !== 3) return null;
+  return { code: String(data.code || 'X01'), name: String(data.name || '自定义色'), hex: String(data.hex).toUpperCase(), rgb: data.rgb.map(Number) };
+}
+
+function openDraftDatabase() {
+  if (!('indexedDB' in window)) return Promise.reject(new Error('当前浏览器不支持 IndexedDB'));
+  if (draftDatabasePromise) return draftDatabasePromise;
+  draftDatabasePromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(DRAFT_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(DRAFT_STORE_NAME)) request.result.createObjectStore(DRAFT_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('无法打开本地草稿库'));
+  });
+  return draftDatabasePromise;
+}
+
+async function readStoredDraft() {
+  const db = await openDraftDatabase();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(DRAFT_STORE_NAME, 'readonly').objectStore(DRAFT_STORE_NAME).get(DRAFT_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error('无法读取本地草稿'));
+  });
+}
+
+async function writeStoredDraft(record) {
+  const db = await openDraftDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(DRAFT_STORE_NAME, 'readwrite');
+    transaction.objectStore(DRAFT_STORE_NAME).put(record, DRAFT_KEY);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error('无法写入本地草稿'));
+    transaction.onabort = () => reject(transaction.error || new Error('本地草稿写入已中止'));
+  });
+}
+
+async function deleteStoredDraft() {
+  const db = await openDraftDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(DRAFT_STORE_NAME, 'readwrite');
+    transaction.objectStore(DRAFT_STORE_NAME).delete(DRAFT_KEY);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error('无法删除本地草稿'));
+  });
+}
+
+function draftRecord() {
+  const savedAt = Date.now();
+  return {
+    version: DRAFT_VERSION,
+    savedAt,
+    expiresAt: savedAt + DRAFT_TTL,
+    imageSrc: ui.sourceThumb.src,
+    fileName: state.fileName,
+    fileMeta: ui.fileMeta.textContent,
+    settings: {
+      cols: state.cols, rows: state.rows, colors: clamp(parseInt(ui.colors.value) || 16, 4, 64),
+      showGrid: ui.showGrid.checked, showSymbols: ui.showSymbols.checked, removeWhite: ui.removeWhite.checked,
+      majorGridSize: ui.majorGridSize.value, majorGridStyle: ui.majorGridStyle.value, showReference: state.showReference,
+      zoom: state.zoom, fitZoom: state.fitZoom
+    },
+    manualOverrides: [...state.manualOverrides].map(([index, color]) => [index, serializeColor(color)]),
+    colorReplacements: [...state.colorReplacements].map(([key, color]) => [key, serializeColor(color)]),
+    selectedColor: serializeColor(state.selectedColor),
+    lastPaintColor: serializeColor(state.lastPaintColor),
+    customIndex: state.customIndex
+  };
+}
+
+function formatDraftStatus(savedAt) {
+  const time = new Date(savedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `已保存 ${time} · 编辑后续期 3 天`;
+}
+
+function updateDraftControls() {
+  ui.saveDraft.disabled = !state.image;
+  ui.clearDraft.disabled = !state.hasStoredDraft;
+}
+
+async function saveDraft(showNotice = false) {
+  if (!state.image || state.restoringDraft) return;
+  clearTimeout(state.draftSaveTimer); state.draftSaveTimer = null;
+  ui.draftStatus.textContent = '正在保存草稿…';
+  const record = draftRecord();
+  try {
+    await writeStoredDraft(record);
+    state.hasStoredDraft = true; updateDraftControls(); ui.draftStatus.textContent = formatDraftStatus(record.savedAt);
+    if (window.PindouCloudDraft) {
+      if (showNotice) window.PindouCloudDraft.save(record, true);
+      else window.PindouCloudDraft.queueSave(record);
+    }
+    if (showNotice) showToast('草稿已保存在当前浏览器，有效期 3 天');
+  } catch (error) {
+    console.error(error); ui.draftStatus.textContent = '保存失败，可能是浏览器存储空间不足';
+    if (showNotice) showToast('草稿保存失败，请检查浏览器存储空间');
+  }
+}
+
+function scheduleDraftSave() {
+  if (!state.image || state.restoringDraft) return;
+  clearTimeout(state.draftSaveTimer);
+  state.draftSaveTimer = setTimeout(() => saveDraft(false), 900);
+}
+
+async function clearDraft(showNotice = true, clearCloud = showNotice) {
+  clearTimeout(state.draftSaveTimer); state.draftSaveTimer = null;
+  try {
+    await deleteStoredDraft();
+    state.hasStoredDraft = false; updateDraftControls();
+    ui.draftStatus.textContent = state.image ? '缓存已清除，继续编辑后会重新保存' : '暂无草稿 · 编辑后自动保存 3 天';
+    if (clearCloud && window.PindouCloudDraft) window.PindouCloudDraft.remove();
+    if (showNotice) showToast('本地草稿已删除');
+  } catch (error) {
+    console.error(error); ui.draftStatus.textContent = '无法删除本地草稿';
+    if (showNotice) showToast('删除草稿失败');
+  }
+}
+
+function applyDraftState(draft) {
+  const settings = draft.settings || {};
+  const cols = clamp(parseInt(settings.cols) || 80, 8, 160), rows = clamp(parseInt(settings.rows) || 40, 8, 160);
+  ui.width.value = cols; ui.height.value = rows; ui.colors.value = clamp(parseInt(settings.colors) || 16, 4, 64);
+  ui.showGrid.checked = settings.showGrid !== false; ui.showSymbols.checked = settings.showSymbols !== false; ui.removeWhite.checked = Boolean(settings.removeWhite);
+  ui.majorGridSize.value = settings.majorGridSize === '10' ? '10' : '5'; ui.majorGridStyle.value = settings.majorGridStyle === 'dashed' ? 'dashed' : 'solid';
+  state.cols = cols; state.rows = rows; state.processedCols = cols; state.processedRows = rows;
+  state.showReference = Boolean(settings.showReference);
+  state.zoom = clamp(Number(settings.zoom) || 1, .25, 3); state.fitZoom = settings.fitZoom !== false;
+  state.manualOverrides = new Map((draft.manualOverrides || []).map(([index, color]) => [Number(index), deserializeColor(color)]).filter(([index, color]) => Number.isInteger(index) && index >= 0 && index < cols * rows && color));
+  state.colorReplacements = new Map((draft.colorReplacements || []).map(([key, color]) => [String(key).toUpperCase(), deserializeColor(color)]).filter(([, color]) => color));
+  state.selectedColor = deserializeColor(draft.selectedColor); state.lastPaintColor = deserializeColor(draft.lastPaintColor);
+  state.customIndex = Math.max(1, parseInt(draft.customIndex) || 1);
+}
+
+async function restoreDraftOnStart() {
+  try {
+    const draft = await readStoredDraft();
+    if (!draft) { ui.draftStatus.textContent = '暂无草稿 · 编辑后自动保存 3 天'; updateDraftControls(); return; }
+    if (draft.version !== DRAFT_VERSION || !draft.imageSrc || !draft.expiresAt || draft.expiresAt <= Date.now()) {
+      await deleteStoredDraft(); state.hasStoredDraft = false; ui.draftStatus.textContent = '旧草稿已过期并自动清理'; updateDraftControls(); return;
+    }
+    if (state.image || state.skipDraftRestore) return;
+    state.hasStoredDraft = true; state.restoringDraft = true; updateDraftControls(); ui.draftStatus.textContent = '正在恢复上次草稿…';
+    loadImage(draft.imageSrc, draft.fileName || '未命名作品.png', draft.fileMeta || '本地草稿', draft);
+  } catch (error) {
+    console.error(error); ui.draftStatus.textContent = '当前浏览器无法使用本地草稿'; updateDraftControls();
+  }
+}
 function nearestIndex(rgb, colors) {
   let best = 0, score = Infinity;
   for (let i = 0; i < colors.length; i++) { const d = colorDistance(rgb, colors[i]); if (d < score) { score = d; best = i; } }
@@ -179,7 +351,7 @@ function remapManualOverrides(oldCols, oldRows, newCols, newRows) {
   return remapped;
 }
 
-function processImage() {
+function processImage(onComplete) {
   if (!state.image) return;
   const nextCols = clamp(parseInt(ui.width.value) || 80, 8, 160);
   const nextRows = clamp(parseInt(ui.height.value) || 40, 8, 160);
@@ -202,9 +374,9 @@ function processImage() {
       state.baseCells = result.assignments.map(i => i < 0 ? null : result.colors[i]);
       applyColorLayers();
       if (!state.selectedColor) selectPaintColor(result.colors[0] || null);
-      render(); updatePaintUI();
+      render(); updatePaintUI(); onComplete?.(true);
     } catch (error) {
-      console.error(error); showToast('图片过大，浏览器无法读取全部像素'); ui.paintStatus.textContent = '处理失败';
+      console.error(error); showToast('图片过大，浏览器无法读取全部像素'); ui.paintStatus.textContent = '处理失败'; onComplete?.(false);
     }
   });
 }
@@ -219,14 +391,61 @@ function recalculateUsed() {
   state.used = [...map.values()].sort((a, b) => b.count - a.count).map(p => ({ ...p, symbol: p.code }));
 }
 
+const ZOOM_LEVELS = [.25, .33, .5, .67, .75, 1, 1.25, 1.5, 2, 2.5, 3];
+function updateZoomUI() {
+  const percent = Math.round(state.zoom * 100);
+  ui.zoomValue.textContent = `${percent}%`;
+  ui.zoomOut.disabled = state.zoom <= ZOOM_LEVELS[0];
+  ui.zoomIn.disabled = state.zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
+  ui.zoomFit.classList.toggle('active', state.fitZoom);
+  ui.zoomFit.setAttribute('aria-pressed', String(state.fitZoom));
+}
+function applyCanvasZoom() {
+  if (!ui.canvas.width || !ui.canvas.height) { updateZoomUI(); return; }
+  const logicalWidth = state.previewLogicalWidth || ui.canvas.width;
+  const logicalHeight = state.previewLogicalHeight || ui.canvas.height;
+  ui.canvas.style.width = `${Math.max(1, Math.round(logicalWidth * state.zoom))}px`;
+  ui.canvas.style.height = `${Math.max(1, Math.round(logicalHeight * state.zoom))}px`;
+  updateZoomUI();
+}
+function setCanvasZoom(nextZoom, fit = false) {
+  if (!state.image) return;
+  const oldZoom = state.zoom || 1, focusX = ui.scroll.scrollLeft + ui.scroll.clientWidth / 2 - ui.canvas.offsetLeft;
+  const focusY = ui.scroll.scrollTop + ui.scroll.clientHeight / 2 - ui.canvas.offsetTop;
+  state.fitZoom = fit;
+  if (!fit) state.zoom = clamp(nextZoom, ZOOM_LEVELS[0], ZOOM_LEVELS[ZOOM_LEVELS.length - 1]);
+  render();
+  if (fit) { ui.scroll.scrollLeft = 0; scheduleDraftSave(); return; }
+  const ratio = state.zoom / oldZoom;
+  requestAnimationFrame(() => {
+    ui.scroll.scrollLeft = ui.canvas.offsetLeft + focusX * ratio - ui.scroll.clientWidth / 2;
+    ui.scroll.scrollTop = ui.canvas.offsetTop + focusY * ratio - ui.scroll.clientHeight / 2;
+  });
+  scheduleDraftSave();
+}
+function stepCanvasZoom(direction) {
+  const next = direction > 0
+    ? ZOOM_LEVELS.find(level => level > state.zoom + .005) || ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
+    : [...ZOOM_LEVELS].reverse().find(level => level < state.zoom - .005) || ZOOM_LEVELS[0];
+  setCanvasZoom(next, false);
+}
+
 function render(target = ui.canvas, exportMode = false) {
   recalculateUsed();
   const total = state.used.reduce((sum, color) => sum + color.count, 0);
-  const cell = exportMode
+  const baseCell = exportMode
     ? Math.max(12, Math.min(32, Math.floor(1900 / state.cols), Math.floor(2600 / state.rows)))
     : Math.min(18, Math.max(9, Math.floor(900 / state.cols)));
   const coordinatesVisible = true;
-  const coordinateBand = coordinatesVisible ? (exportMode ? 34 : Math.max(18, Math.min(28, cell * 1.8))) : 0;
+  const logicalCoordinateBand = coordinatesVisible ? (exportMode ? 34 : Math.max(18, Math.min(28, baseCell * 1.8))) : 0;
+  if (!exportMode && state.fitZoom) {
+    const logicalWidth = state.cols * baseCell + logicalCoordinateBand * 2;
+    const availableWidth = Math.max(160, ui.scroll.clientWidth - 36);
+    state.zoom = clamp(Math.min(1, availableWidth / logicalWidth), ZOOM_LEVELS[0], ZOOM_LEVELS[ZOOM_LEVELS.length - 1]);
+  }
+  const renderScale = exportMode ? 1 : Math.min(3, Math.max(1, state.zoom * Math.min(window.devicePixelRatio || 1, 2)));
+  const cell = baseCell * renderScale;
+  const coordinateBand = logicalCoordinateBand * renderScale;
   const outerPadding = exportMode ? 38 : 0;
   const titleHeight = exportMode ? 104 : 0;
   const gridWidth = state.cols * cell, gridHeight = state.rows * cell;
@@ -239,7 +458,13 @@ function render(target = ui.canvas, exportMode = false) {
   const legendHeight = exportMode ? 78 + legendRows * 50 : 0;
   target.width = canvasWidth;
   target.height = gridY + gridHeight + coordinateBand + outerPadding + legendHeight;
-  if (!exportMode) { state.cellSize = cell; state.gridOriginX = gridX; state.gridOriginY = gridY; }
+  if (!exportMode) {
+    state.cellSize = cell; state.gridOriginX = gridX; state.gridOriginY = gridY;
+    state.previewRenderScale = renderScale;
+    state.previewLogicalWidth = target.width / renderScale;
+    state.previewLogicalHeight = target.height / renderScale;
+    applyCanvasZoom();
+  }
 
   const ctx = target.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, target.width, target.height);
@@ -254,7 +479,8 @@ function render(target = ui.canvas, exportMode = false) {
     const p = state.cells[y * state.cols + x], px = gridX + x * cell, py = gridY + y * cell;
     if (p) {
       ctx.save(); ctx.globalAlpha = referenceVisible ? .52 : 1; ctx.fillStyle = p.hex;
-      ctx.fillRect(px + .3, py + .3, cell - .6, cell - .6);
+      const inset = exportMode ? .3 : .3 * renderScale;
+      ctx.fillRect(px + inset, py + inset, cell - inset * 2, cell - inset * 2);
       ctx.restore();
       if (ui.showSymbols.checked || exportMode) {
         const code = symbolMap.get(p.hex.toUpperCase());
@@ -265,7 +491,7 @@ function render(target = ui.canvas, exportMode = false) {
     }
   }
 
-  drawGridAndCoordinates(ctx, { cell, gridX, gridY, gridWidth, gridHeight, coordinateBand, exportMode });
+  drawGridAndCoordinates(ctx, { cell, gridX, gridY, gridWidth, gridHeight, coordinateBand, exportMode, renderScale });
 
   if (exportMode) {
     ctx.fillStyle = '#242321'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -276,16 +502,17 @@ function render(target = ui.canvas, exportMode = false) {
     drawExportLegend(ctx, gridY + gridHeight + coordinateBand + outerPadding, outerPadding, target.width - outerPadding * 2, legendColumns);
   }
   updateDetails();
+  if (target === ui.canvas && !exportMode) scheduleDraftSave();
 }
 
 function drawGridAndCoordinates(ctx, layout) {
-  const { cell, gridX, gridY, gridWidth, gridHeight, coordinateBand, exportMode } = layout;
+  const { cell, gridX, gridY, gridWidth, gridHeight, coordinateBand, exportMode, renderScale = 1 } = layout;
   ctx.save();
   if (ui.showGrid.checked || exportMode) {
     ctx.beginPath();
     for (let x = 0; x <= state.cols; x++) { const px = gridX + x * cell; ctx.moveTo(px, gridY); ctx.lineTo(px, gridY + gridHeight); }
     for (let y = 0; y <= state.rows; y++) { const py = gridY + y * cell; ctx.moveTo(gridX, py); ctx.lineTo(gridX + gridWidth, py); }
-    ctx.strokeStyle = exportMode ? 'rgba(45,43,40,.32)' : 'rgba(45,43,40,.24)'; ctx.lineWidth = exportMode ? .8 : .55; ctx.setLineDash([]); ctx.stroke();
+    ctx.strokeStyle = exportMode ? 'rgba(45,43,40,.32)' : 'rgba(45,43,40,.24)'; ctx.lineWidth = exportMode ? .8 : .55 * renderScale; ctx.setLineDash([]); ctx.stroke();
   }
 
   const interval = parseInt(ui.majorGridSize.value) || 5;
@@ -294,8 +521,8 @@ function drawGridAndCoordinates(ctx, layout) {
   if (state.cols % interval) { ctx.moveTo(gridX + gridWidth, gridY); ctx.lineTo(gridX + gridWidth, gridY + gridHeight); }
   for (let y = 0; y <= state.rows; y += interval) { const py = gridY + y * cell; ctx.moveTo(gridX, py); ctx.lineTo(gridX + gridWidth, py); }
   if (state.rows % interval) { ctx.moveTo(gridX, gridY + gridHeight); ctx.lineTo(gridX + gridWidth, gridY + gridHeight); }
-  ctx.strokeStyle = '#e83f36'; ctx.lineWidth = exportMode ? 2 : 1.55;
-  ctx.setLineDash(ui.majorGridStyle.value === 'dashed' ? (exportMode ? [7, 4] : [4, 2]) : []); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = '#e83f36'; ctx.lineWidth = exportMode ? 2 : 1.55 * renderScale;
+  ctx.setLineDash(ui.majorGridStyle.value === 'dashed' ? (exportMode ? [7, 4] : [4 * renderScale, 2 * renderScale]) : []); ctx.stroke(); ctx.setLineDash([]);
 
   const coordinateFont = exportMode ? Math.max(6, Math.min(13, cell * .45)) : Math.max(6, Math.min(9, cell * .58));
   ctx.font = `500 ${coordinateFont}px Arial, sans-serif`; ctx.fillStyle = '#68645e'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -428,16 +655,36 @@ function loadFile(file) {
   if (!file || !file.type.startsWith('image/')) return showToast('请选择图片文件');
   const reader = new FileReader(); reader.onload = e => loadImage(e.target.result, file.name, `${(file.size / 1024 / 1024).toFixed(2)} MB`); reader.readAsDataURL(file);
 }
-function loadImage(src, name, meta = '示例图片') {
+function loadImage(src, name, meta = '示例图片', restoredDraft = null, restoreSource = 'local') {
+  const loadToken = ++state.imageLoadToken;
+  if (!restoredDraft) { state.skipDraftRestore = true; state.restoringDraft = false; state.zoom = 1; state.fitZoom = true; }
   const img = new Image(); img.onload = () => {
+    if (loadToken !== state.imageLoadToken) return;
     closeReplaceModal();
     state.baseCells = []; state.cells = []; state.manualOverrides = new Map(); state.colorReplacements = new Map(); state.history = [];
     state.selectedColor = null; state.lastPaintColor = null;
+    if (restoredDraft) applyDraftState(restoredDraft);
     state.image = img; state.fileName = name; ui.sourceThumb.src = src; ui.fileName.textContent = name;
-    ui.fileMeta.textContent = `${img.naturalWidth} × ${img.naturalHeight} · ${meta}`;
+    ui.fileMeta.textContent = restoredDraft && restoredDraft.fileMeta ? restoredDraft.fileMeta : `${img.naturalWidth} × ${img.naturalHeight} · ${meta}`;
     ui.dropZone.hidden = true; ui.fileCard.hidden = false; ui.empty.hidden = true; ui.scroll.hidden = false; ui.palette.hidden = false;
-    el('projectTitle').textContent = name.replace(/\.[^.]+$/, ''); processImage();
-  }; img.src = src;
+    el('projectTitle').textContent = name.replace(/\.[^.]+$/, ''); updateDraftControls();
+    processImage(success => {
+      if (!restoredDraft) return;
+      state.restoringDraft = false;
+      if (success) {
+        ui.draftStatus.textContent = formatDraftStatus(restoredDraft.savedAt);
+        showToast(restoreSource === 'cloud' ? '已恢复账号中的云端草稿' : '已恢复上次未完成的草稿');
+        if (restoreSource === 'cloud') saveDraft(false);
+      }
+      else ui.draftStatus.textContent = '草稿原图无法恢复';
+    });
+  };
+  img.onerror = () => {
+    if (loadToken !== state.imageLoadToken) return;
+    if (restoredDraft) { state.restoringDraft = false; clearDraft(false, false); ui.draftStatus.textContent = '草稿原图损坏，已清理'; }
+    showToast('图片读取失败');
+  };
+  img.src = src;
 }
 function createDemo() {
   const c = document.createElement('canvas'); c.width = 800; c.height = 400; const x = c.getContext('2d');
@@ -449,13 +696,162 @@ function createDemo() {
 }
 function reset() {
   closeReplaceModal();
+  state.imageLoadToken++; state.skipDraftRestore = true; state.restoringDraft = false;
   state.image = null; state.baseCells = []; state.cells = []; state.manualOverrides = new Map(); state.colorReplacements = new Map(); state.history = [];
-  state.paintMode = false; state.showReference = false; state.selectedColor = null; state.lastPaintColor = null; ui.fileInput.value = '';
+  state.paintMode = false; state.showReference = false; state.selectedColor = null; state.lastPaintColor = null;
+  state.zoom = 1; state.fitZoom = true; ui.fileInput.value = '';
   ui.dropZone.hidden = false; ui.fileCard.hidden = true; ui.empty.hidden = false; ui.scroll.hidden = true; ui.palette.hidden = true;
   el('projectTitle').textContent = '等待你的作品'; el('sizeStat').textContent = '—'; el('beadStat').textContent = '0'; el('colorStat').textContent = '0';
+  updateDraftControls(); clearDraft(false, true);
 }
 function showToast(msg) { const t = el('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => t.classList.remove('show'), 2200); }
 function download(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; a.click(); }
+
+function bytesFromText(text) { return new TextEncoder().encode(text); }
+function joinBytes(parts) {
+  const length = parts.reduce((sum, part) => sum + part.length, 0), output = new Uint8Array(length);
+  let offset = 0;
+  for (const part of parts) { output.set(part, offset); offset += part.length; }
+  return output;
+}
+function jpegBytes(canvas) {
+  const base64 = canvas.toDataURL('image/jpeg', .98).split(',')[1], binary = atob(base64), bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+function pdfFromPages(pages) {
+  const defaultPageWidth = 842, defaultPageHeight = 595, margin = 18;
+  const objects = [bytesFromText('<< /Type /Catalog /Pages 2 0 R >>'), null];
+  const pageIds = [];
+  pages.forEach(page => {
+    const pageWidth = page.pageWidth || defaultPageWidth, pageHeight = page.pageHeight || defaultPageHeight;
+    const pageId = objects.length + 1, contentId = pageId + 1, imageId = pageId + 2;
+    pageIds.push(pageId);
+    const scale = Math.min((pageWidth - margin * 2) / page.pixelWidth, (pageHeight - margin * 2) / page.pixelHeight);
+    const drawWidth = page.pixelWidth * scale, drawHeight = page.pixelHeight * scale;
+    const left = (pageWidth - drawWidth) / 2, bottom = (pageHeight - drawHeight) / 2;
+    const content = bytesFromText(`q\n${drawWidth.toFixed(3)} 0 0 ${drawHeight.toFixed(3)} ${left.toFixed(3)} ${bottom.toFixed(3)} cm\n/Im0 Do\nQ\n`);
+    objects.push(bytesFromText(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`));
+    objects.push(joinBytes([bytesFromText(`<< /Length ${content.length} >>\nstream\n`), content, bytesFromText('endstream')]));
+    objects.push(joinBytes([bytesFromText(`<< /Type /XObject /Subtype /Image /Width ${page.pixelWidth} /Height ${page.pixelHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${page.image.length} >>\nstream\n`), page.image, bytesFromText('\nendstream')]));
+  });
+  objects[1] = bytesFromText(`<< /Type /Pages /Kids [${pageIds.map(id => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`);
+  const chunks = [new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52, 10, 37, 255, 255, 255, 255, 10])], offsets = [0];
+  let length = chunks[0].length;
+  objects.forEach((object, index) => {
+    offsets.push(length);
+    const wrapped = joinBytes([bytesFromText(`${index + 1} 0 obj\n`), object, bytesFromText('\nendobj\n')]);
+    chunks.push(wrapped); length += wrapped.length;
+  });
+  const xrefOffset = length;
+  const xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  chunks.push(bytesFromText(xref));
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
+function renderPdfTile(startCol, startRow, tileCols, tileRows, pageNumber, pageCount) {
+  const cell = 28, band = 48, padding = 22, titleHeight = 66;
+  const gridWidth = tileCols * cell, gridHeight = tileRows * cell;
+  const canvas = document.createElement('canvas');
+  canvas.width = padding * 2 + band * 2 + gridWidth;
+  canvas.height = padding * 2 + titleHeight + band * 2 + gridHeight;
+  const ctx = canvas.getContext('2d'), gridX = padding + band, gridY = padding + titleHeight + band;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#242321'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = '700 24px "Microsoft YaHei", Arial, sans-serif';
+  ctx.fillText(state.fileName.replace(/\.[^.]+$/, ''), padding, 34);
+  ctx.fillStyle = '#706a63'; ctx.font = '15px Arial, sans-serif';
+  ctx.fillText(`列 ${startCol + 1}–${startCol + tileCols} · 行 ${startRow + 1}–${startRow + tileRows}`, padding, 57);
+  ctx.textAlign = 'right'; ctx.fillText(`${state.cols} × ${state.rows} · 第 ${pageNumber}/${pageCount} 页`, canvas.width - padding, 34);
+  ctx.fillText(`${state.used.length} 色 · ${state.used.reduce((sum, color) => sum + color.count, 0).toLocaleString('zh-CN')} 颗`, canvas.width - padding, 57);
+
+  const symbolMap = new Map(state.used.map(color => [color.hex.toUpperCase(), color.code]));
+  for (let y = 0; y < tileRows; y++) for (let x = 0; x < tileCols; x++) {
+    const color = state.cells[(startRow + y) * state.cols + startCol + x];
+    if (!color) continue;
+    const px = gridX + x * cell, py = gridY + y * cell, code = symbolMap.get(color.hex.toUpperCase()) || color.code;
+    ctx.fillStyle = color.hex; ctx.fillRect(px + .5, py + .5, cell - 1, cell - 1);
+    const fontSize = Math.max(10, Math.min(14, (cell - 5) / Math.max(1, code.length * .56)));
+    ctx.fillStyle = luminance(color.rgb) > 155 ? '#211f1c' : '#fff';
+    ctx.font = `700 ${fontSize}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(code, px + cell / 2, py + cell / 2 + .5);
+  }
+
+  ctx.beginPath();
+  for (let x = 0; x <= tileCols; x++) { const px = gridX + x * cell; ctx.moveTo(px, gridY); ctx.lineTo(px, gridY + gridHeight); }
+  for (let y = 0; y <= tileRows; y++) { const py = gridY + y * cell; ctx.moveTo(gridX, py); ctx.lineTo(gridX + gridWidth, py); }
+  ctx.strokeStyle = 'rgba(45,43,40,.42)'; ctx.lineWidth = 1; ctx.setLineDash([]); ctx.stroke();
+
+  const interval = parseInt(ui.majorGridSize.value) || 5;
+  ctx.beginPath();
+  for (let x = 0; x <= tileCols; x++) if (x === 0 || x === tileCols || (startCol + x) % interval === 0) {
+    const px = gridX + x * cell; ctx.moveTo(px, gridY); ctx.lineTo(px, gridY + gridHeight);
+  }
+  for (let y = 0; y <= tileRows; y++) if (y === 0 || y === tileRows || (startRow + y) % interval === 0) {
+    const py = gridY + y * cell; ctx.moveTo(gridX, py); ctx.lineTo(gridX + gridWidth, py);
+  }
+  ctx.strokeStyle = '#e83f36'; ctx.lineWidth = 2.4;
+  ctx.setLineDash(ui.majorGridStyle.value === 'dashed' ? [8, 5] : []); ctx.stroke(); ctx.setLineDash([]);
+
+  ctx.fillStyle = '#514d48'; ctx.font = '600 12px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let x = 0; x < tileCols; x++) {
+    const label = String(startCol + x + 1), px = gridX + (x + .5) * cell;
+    ctx.fillText(label, px, gridY - band / 2); ctx.fillText(label, px, gridY + gridHeight + band / 2);
+  }
+  for (let y = 0; y < tileRows; y++) {
+    const label = String(startRow + y + 1), py = gridY + (y + .5) * cell;
+    ctx.fillText(label, gridX - band / 2, py); ctx.fillText(label, gridX + gridWidth + band / 2, py);
+  }
+  return canvas;
+}
+
+function renderPdfLegend() {
+  const canvas = document.createElement('canvas'); canvas.width = 1500; canvas.height = 1050;
+  const ctx = canvas.getContext('2d'), padding = 58, columns = 4, gap = 18;
+  const itemWidth = (canvas.width - padding * 2 - gap * (columns - 1)) / columns, itemHeight = 52;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#242321'; ctx.font = '700 38px "Microsoft YaHei", Arial, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('豆格 · MARD 配色清单', padding, 68);
+  ctx.fillStyle = '#706a63'; ctx.font = '20px Arial, sans-serif';
+  ctx.fillText(`${state.fileName.replace(/\.[^.]+$/, '')} · ${state.cols} × ${state.rows} · ${state.used.length} 色 · 共 ${state.used.reduce((sum, color) => sum + color.count, 0).toLocaleString('zh-CN')} 颗`, padding, 103);
+  state.used.forEach((color, index) => {
+    const column = index % columns, row = Math.floor(index / columns);
+    const x = padding + column * (itemWidth + gap), y = 134 + row * itemHeight;
+    ctx.fillStyle = '#faf9f7'; ctx.strokeStyle = '#d9d5ce'; ctx.lineWidth = 1; ctx.fillRect(x, y, itemWidth, 42); ctx.strokeRect(x, y, itemWidth, 42);
+    ctx.fillStyle = color.hex; ctx.fillRect(x + 7, y + 7, 28, 28); ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.strokeRect(x + 7, y + 7, 28, 28);
+    ctx.fillStyle = '#272522'; ctx.font = '700 16px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(`MARD ${color.code}`, x + 46, y + 14);
+    ctx.fillStyle = '#817b74'; ctx.font = '12px Arial, sans-serif'; ctx.fillText(color.hex, x + 46, y + 30);
+    ctx.fillStyle = '#272522'; ctx.font = '700 17px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`${color.count.toLocaleString('zh-CN')} 颗`, x + itemWidth - 10, y + 21);
+  });
+  return canvas;
+}
+
+async function generatePaidPdf() {
+  recalculateUsed();
+  const tileSize = 160, across = Math.ceil(state.cols / tileSize), down = Math.ceil(state.rows / tileSize);
+  const tilePageCount = across * down, pages = [];
+  showToast(`正在生成 ${tilePageCount + 1} 页高清 PDF…`);
+  let pageNumber = 0;
+  for (let startRow = 0; startRow < state.rows; startRow += tileSize) {
+    for (let startCol = 0; startCol < state.cols; startCol += tileSize) {
+      pageNumber++;
+      const canvas = renderPdfTile(startCol, startRow, Math.min(tileSize, state.cols - startCol), Math.min(tileSize, state.rows - startRow), pageNumber, tilePageCount);
+      pages.push({
+        image: jpegBytes(canvas), pixelWidth: canvas.width, pixelHeight: canvas.height,
+        pageWidth: canvas.width * .58 + 36, pageHeight: canvas.height * .58 + 36
+      });
+      canvas.width = 1; canvas.height = 1;
+      if (pageNumber % 2 === 0) await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+  }
+  const legend = renderPdfLegend();
+  pages.push({ image: jpegBytes(legend), pixelWidth: legend.width, pixelHeight: legend.height });
+  legend.width = 1; legend.height = 1;
+  const blob = pdfFromPages(pages), url = URL.createObjectURL(blob);
+  download(url, `${state.fileName.replace(/\.[^.]+$/, '')}-拼豆图纸.pdf`);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  showToast(`高清 PDF 已生成：${tilePageCount} 张图纸页 + 1 张配色页`);
+}
 
 ui.fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
 ['dragenter', 'dragover'].forEach(n => ui.dropZone.addEventListener(n, e => { e.preventDefault(); ui.dropZone.classList.add('dragging'); }));
@@ -466,9 +862,9 @@ document.querySelectorAll('.preset-row button').forEach(btn => btn.addEventListe
   const [cols, rows] = btn.dataset.size.split('x'); ui.width.value = cols; ui.height.value = rows;
   document.querySelectorAll('.preset-row button').forEach(b => b.classList.remove('active')); btn.classList.add('active'); processImage();
 }));
-ui.colors.addEventListener('change', processImage);
+ui.colors.addEventListener('change', () => processImage());
 ui.colors.addEventListener('keydown', event => { if (event.key === 'Enter') ui.colors.blur(); });
-[ui.showGrid, ui.showSymbols].forEach(x => x.addEventListener('change', () => state.image && render())); ui.removeWhite.addEventListener('change', processImage);
+[ui.showGrid, ui.showSymbols].forEach(x => x.addEventListener('change', () => state.image && render())); ui.removeWhite.addEventListener('change', () => processImage());
 [ui.majorGridSize, ui.majorGridStyle].forEach(control => control.addEventListener('change', () => state.image && render()));
 ui.paintToggle.addEventListener('click', () => { state.paintMode = !state.paintMode; state.pickerMode = false; updatePaintUI(); });
 ui.eraserButton.addEventListener('click', toggleEraser);
@@ -508,7 +904,22 @@ ui.undoButton.addEventListener('click', () => {
 });
 ui.canvas.addEventListener('pointerdown', beginPaint); ui.canvas.addEventListener('pointermove', e => { if (state.drawing) { e.preventDefault(); paintAt(e); } });
 ui.canvas.addEventListener('pointerup', endPaint); ui.canvas.addEventListener('pointercancel', endPaint); ui.canvas.addEventListener('pointerleave', e => { if (e.buttons === 0) endPaint(); });
-el('exportPng').addEventListener('click', () => { if (!state.image) return showToast('请先选择一张图片'); const c = document.createElement('canvas'); render(c, true); download(c.toDataURL('image/png'), `${state.fileName.replace(/\.[^.]+$/, '')}-拼豆图纸.png`); showToast('高清图纸已生成'); });
+ui.zoomOut.addEventListener('click', () => stepCanvasZoom(-1));
+ui.zoomIn.addEventListener('click', () => stepCanvasZoom(1));
+ui.zoomValue.addEventListener('click', () => setCanvasZoom(1, false));
+ui.zoomFit.addEventListener('click', () => setCanvasZoom(state.zoom, true));
+ui.scroll.addEventListener('wheel', event => {
+  if (!event.ctrlKey || !state.image) return;
+  event.preventDefault(); stepCanvasZoom(event.deltaY < 0 ? 1 : -1);
+}, { passive: false });
+window.addEventListener('resize', () => { if (state.image && state.fitZoom) render(); });
+ui.saveDraft.addEventListener('click', () => saveDraft(true));
+ui.clearDraft.addEventListener('click', () => clearDraft(true));
+el('exportPng').addEventListener('click', () => {
+  if (!state.image) return showToast('请先选择一张图片');
+  if (!window.PindouBilling) return showToast('付费结算模块尚未加载，请刷新页面后重试');
+  window.PindouBilling.requestOwnDownload(generatePaidPdf);
+});
 el('exportCsv').addEventListener('click', () => {
   if (!state.image) return showToast('请先选择一张图片'); recalculateUsed();
   const rows = ['色号,颜色名称,HEX,数量', ...state.used.map(p => `${p.code},${p.name},${p.hex},${p.count}`), `,总计,,${state.used.reduce((n, p) => n + p.count, 0)}`];
@@ -517,4 +928,14 @@ el('exportCsv').addEventListener('click', () => {
 
 ui.mardColor.innerHTML = MARD_COLORS.map(color => `<option value="${color.code}">${color.code} · ${color.hex}</option>`).join('');
 ui.replaceColorSelect.innerHTML = mardOptionsHtml();
-updatePaintUI();
+window.PindouDraftBridge = Object.freeze({
+  hasProject: () => Boolean(state.image),
+  currentProject: () => state.image ? draftRecord() : null,
+  restore(project) {
+    if (!project || project.version !== DRAFT_VERSION || typeof project.imageSrc !== 'string') return false;
+    state.restoringDraft = true;
+    loadImage(project.imageSrc, project.fileName || '云端草稿.png', project.fileMeta || '账号云草稿', project, 'cloud');
+    return true;
+  }
+});
+updatePaintUI(); updateDraftControls(); updateZoomUI(); restoreDraftOnStart();

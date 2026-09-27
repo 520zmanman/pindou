@@ -8,14 +8,15 @@
   <meta http-equiv="Expires" content="0" />
   <meta name="theme-color" content="#f7f4ee" />
   <title>豆格 · 拼豆图纸生成器</title>
-  <link rel="stylesheet" href="./style.css?v=20260823-eraser-v6" />
+  <link rel="stylesheet" href="./style.css?v=20260927-poster-pdf-v14" />
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="#" aria-label="豆格首页"><span class="brand-mark">豆</span><span>豆格</span></a>
     <span class="tagline">把喜欢的图片，变成一颗颗豆子</span>
-    <span class="build-badge">橡皮切换版 v6</span>
-    <div class="privacy"><span class="status-dot"></span>图片仅在本地处理</div>
+    <span class="build-badge">160 格大幅面 PDF 版 v14</span>
+    <button class="account-button" id="accountButton" type="button"><span>◎</span><b>登录 / 注册</b></button>
+    <div class="privacy"><span class="status-dot"></span>图片默认仅在本地处理</div>
   </header>
 
   <main class="app-shell">
@@ -71,10 +72,24 @@
         <label class="check-row"><span>忽略近白背景<small>自动留空白色区域</small></span><input id="removeWhite" type="checkbox" /><i></i></label>
       </section>
 
+      <section class="draft-section">
+        <div class="section-heading"><span class="step">03</span><h2>草稿缓存</h2></div>
+        <div class="draft-card">
+          <div><strong>浏览器与账号草稿</strong><small id="draftStatus">正在检查本地草稿…</small><small id="cloudDraftStatus" class="cloud-draft-status">未登录 · 暂不同步云端</small></div>
+          <span class="draft-life">保留 3 天</span>
+        </div>
+        <div class="draft-actions">
+          <button id="saveDraft" disabled>立即保存</button>
+          <button id="clearDraft" disabled>删除草稿</button>
+          <button id="restoreCloudDraft" class="restore-cloud" hidden>恢复云端草稿</button>
+        </div>
+        <p class="algorithm-note">未登录时只保存在当前浏览器；登录后会把原图和编辑记录同步到你的服务器，最后一次保存 3 天后自动删除。</p>
+      </section>
+
       <section class="export-section">
-        <div class="section-heading"><span class="step">03</span><h2>导出图纸</h2></div>
+        <div class="section-heading"><span class="step">04</span><h2>导出图纸</h2></div>
         <div class="button-grid">
-          <button class="primary" id="exportPng">下载高清图纸 <span>↗</span></button>
+          <button class="primary" id="exportPng">付费下载 PDF 图纸 <span>¥0.10</span></button>
           <button class="secondary" id="exportCsv">导出用量清单</button>
         </div>
       </section>
@@ -111,6 +126,12 @@
             <label class="mard-picker"><span>MARD 色号</span><select id="mardColor" disabled></select></label>
             <label class="custom-color" title="选择自定义颜色"><input id="customColor" type="color" value="#ef6a3a" disabled /><span>自定义颜色</span></label>
             <button id="undoButton" class="tool-button" disabled><span>↶</span> 撤销</button>
+            <div class="zoom-controls" aria-label="绘制区缩放">
+              <button id="zoomOut" type="button" title="缩小画布" aria-label="缩小画布">−</button>
+              <button id="zoomValue" type="button" title="恢复 100%">100%</button>
+              <button id="zoomIn" type="button" title="放大画布" aria-label="放大画布">＋</button>
+              <button id="zoomFit" type="button" title="让画布适合绘制区宽度">适合宽度</button>
+            </div>
             <span class="paint-status" id="paintStatus">预览模式</span>
           </div>
           <canvas id="patternCanvas" aria-label="拼豆图纸预览"></canvas>
@@ -141,8 +162,62 @@
     </section>
   </div>
 
+  <div class="auth-modal" id="authModal" hidden>
+    <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button class="replace-close" id="authClose" aria-label="关闭">×</button>
+      <span class="eyebrow">豆格账号</span>
+      <h2 id="authTitle">登录后保存云端草稿</h2>
+      <p class="auth-intro">账号将用于三天云缓存、账户余额和付费 PDF 下载。本机处理图片的方式保持不变。</p>
+
+      <div id="authGuest">
+        <div class="auth-tabs" role="tablist">
+          <button id="loginTab" class="active" type="button" role="tab">登录</button>
+          <button id="registerTab" type="button" role="tab">注册</button>
+        </div>
+        <form id="loginForm" class="auth-form">
+          <label><span>账号</span><input id="loginIdentifier" autocomplete="username" placeholder="用户名、已验证邮箱或手机号" required /></label>
+          <label><span>密码</span><input id="loginPassword" type="password" autocomplete="current-password" minlength="8" maxlength="72" required /></label>
+          <button class="auth-submit" type="submit">登录</button>
+          <button class="auth-link" id="forgotPassword" type="button">忘记密码？</button>
+        </form>
+        <form id="registerForm" class="auth-form" hidden>
+          <label><span>用户名</span><input id="registerUsername" autocomplete="username" minlength="3" maxlength="24" placeholder="3–24 位文字、字母或数字" required /></label>
+          <label><span>邮箱（可选）</span><input id="registerEmail" type="email" autocomplete="email" placeholder="验证后可用于找回密码" /></label>
+          <label><span>密码</span><input id="registerPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="至少 8 位" required /></label>
+          <label><span>确认密码</span><input id="registerPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="72" required /></label>
+          <button class="auth-submit" type="submit">创建账号</button>
+        </form>
+        <p class="auth-note">邮箱与手机验证码、密码找回将在接入短信或邮件服务后启用。</p>
+      </div>
+
+      <div id="authMember" class="auth-member" hidden>
+        <span class="auth-avatar">豆</span>
+        <div><small>当前账号</small><strong id="accountName">—</strong><em id="accountBinding">尚未绑定联系方式</em></div>
+        <div class="balance-card"><span>账户余额与权限</span><strong id="accountBalance">¥0.00</strong><small id="accountPlan">自制 PDF 每次 ¥0.10；共享图纸每次 ¥0.01</small></div>
+        <button class="auth-submit" id="logoutButton" type="button">退出登录</button>
+      </div>
+      <p class="auth-autoclose" id="authAutoClose" hidden>登录成功，本窗口将在 <b id="authCountdown">10</b> 秒后自动关闭。</p>
+      <p class="auth-error" id="authError" role="alert"></p>
+    </section>
+  </div>
+
+  <div class="checkout-modal" id="checkoutModal" hidden>
+    <section class="checkout-dialog" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
+      <button class="replace-close" id="checkoutClose" aria-label="关闭">×</button>
+      <span class="eyebrow">下载结算</span>
+      <h2 id="checkoutTitle">高清 PDF 图纸下载</h2>
+      <div class="checkout-price"><small>本次下载</small><strong>¥0.10</strong><span>每次生成下载均单独计费</span></div>
+      <div class="checkout-options">
+        <button id="guestCheckout" type="button" disabled><b>游客微信支付</b><small id="guestCheckoutHint">微信支付 Native 待配置</small></button>
+        <button id="accountCheckout" type="button"><b>登录账号支付</b><small id="accountCheckoutHint">登录后可使用账户余额</small></button>
+      </div>
+      <p class="checkout-notice">当前尚未配置微信支付或支付宝商户接口，因此暂不开放真实下载。支付接入后，游客无需注册也能付款下载。</p>
+    </section>
+  </div>
+
   <div class="toast" id="toast" role="status"></div>
-  <script src="./mard-palette.js?v=20260823-eraser-v6"></script>
-  <script src="./app.js?v=20260823-eraser-v6"></script>
+  <script src="./mard-palette.js?v=20260927-draft-v7"></script>
+  <script src="./app.js?v=20260927-poster-pdf-v14"></script>
+  <script src="./account.js?v=20260927-poster-pdf-v14"></script>
 </body>
 </html>

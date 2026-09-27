@@ -1,0 +1,5 @@
+# Private Codex conversation exports. Never commit these files.
+private-migration/
+
+# Local account database and SQLite journal files.
+data/
