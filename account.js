@@ -18,14 +18,34 @@
     binding: document.getElementById('accountBinding'),
     balance: document.getElementById('accountBalance'),
     plan: document.getElementById('accountPlan'),
+    bindChannel: document.getElementById('bindChannel'),
+    bindDestination: document.getElementById('bindDestination'),
+    bindCode: document.getElementById('bindCode'),
+    sendBindCode: document.getElementById('sendBindCode'),
+    verifyBindCode: document.getElementById('verifyBindCode'),
+    bindStatus: document.getElementById('bindStatus'),
     logout: document.getElementById('logoutButton'),
     forgot: document.getElementById('forgotPassword'),
+    resetModal: document.getElementById('resetModal'),
+    resetClose: document.getElementById('resetClose'),
+    resetForm: document.getElementById('resetForm'),
+    resetIdentifier: document.getElementById('resetIdentifier'),
+    resetChannel: document.getElementById('resetChannel'),
+    resetCode: document.getElementById('resetCode'),
+    sendResetCode: document.getElementById('sendResetCode'),
+    resetPassword: document.getElementById('resetPassword'),
+    resetPasswordConfirm: document.getElementById('resetPasswordConfirm'),
+    resetProviderStatus: document.getElementById('resetProviderStatus'),
+    resetError: document.getElementById('resetError'),
     checkoutModal: document.getElementById('checkoutModal'),
     checkoutClose: document.getElementById('checkoutClose'),
     guestCheckout: document.getElementById('guestCheckout'),
     guestCheckoutHint: document.getElementById('guestCheckoutHint'),
     accountCheckout: document.getElementById('accountCheckout'),
     accountCheckoutHint: document.getElementById('accountCheckoutHint'),
+    checkoutPrice: document.getElementById('checkoutPrice'),
+    checkoutPriceNote: document.getElementById('checkoutPriceNote'),
+    exportPrice: document.getElementById('exportPrice'),
     cloudDraftStatus: document.getElementById('cloudDraftStatus'),
     restoreCloudDraft: document.getElementById('restoreCloudDraft')
   };
@@ -35,6 +55,8 @@
   let cloudSaveTimer = null;
   let pendingDownload = null;
   let authAutoCloseTimer = null;
+  let pricing = { guestOwnPdfFen: 100, memberOwnPdfFen: 50, sharedPdfFen: 1 };
+  let verificationStatus = { emailConfigured: false, smsConfigured: false, mode: 'production' };
 
   function notify(message) {
     if (typeof window.showToast === 'function') window.showToast(message);
@@ -55,6 +77,13 @@
     return `¥${(Number(value || 0) / 100).toFixed(2)}`;
   }
 
+  function renderPricing(nextPricing) {
+    if (nextPricing) pricing = { ...pricing, ...nextPricing };
+    authUi.exportPrice.textContent = `游客 ${formatFen(pricing.guestOwnPdfFen)} / 登录 ${formatFen(pricing.memberOwnPdfFen)}`;
+    authUi.guestCheckout.querySelector('b').textContent = `游客微信支付 ${formatFen(pricing.guestOwnPdfFen)}`;
+    if (!currentUser) authUi.accountCheckout.querySelector('b').textContent = `登录后 ${formatFen(pricing.memberOwnPdfFen)} 下载`;
+  }
+
   function renderAccount(user) {
     const previousUserId = currentUser && currentUser.id;
     currentUser = user || null;
@@ -63,10 +92,10 @@
     authUi.button.classList.toggle('logged-in', Boolean(currentUser));
     authUi.button.classList.toggle('superuser', Boolean(currentUser && currentUser.isSuperuser));
     authUi.button.querySelector('b').textContent = currentUser ? `${currentUser.isSuperuser ? '超级 · ' : ''}${currentUser.username}` : '登录 / 注册';
-    authUi.accountCheckout.querySelector('b').textContent = currentUser ? (currentUser.isSuperuser ? '超级账户免费下载' : '账户余额支付') : '登录账号支付';
+    authUi.accountCheckout.querySelector('b').textContent = currentUser ? (currentUser.isSuperuser ? '超级账户免费下载' : `登录用户微信支付 ${formatFen(pricing.memberOwnPdfFen)}`) : `登录后 ${formatFen(pricing.memberOwnPdfFen)} 下载`;
     authUi.accountCheckoutHint.textContent = currentUser
-      ? (currentUser.isSuperuser ? '测试权限已启用 · 不扣除余额' : `当前余额 ${formatFen(currentUser.balanceFen)} · 充值尚未开放`)
-      : '登录后可使用账户余额';
+      ? (currentUser.isSuperuser ? '测试权限已启用 · 不扣除余额' : `登录账户专享价格 · 当前余额 ${formatFen(currentUser.balanceFen)}`)
+      : `登录账户比游客节省 ${formatFen(pricing.guestOwnPdfFen - pricing.memberOwnPdfFen)}`;
     if (!currentUser) {
       clearTimeout(cloudSaveTimer); cloudSaveTimer = null; cloudDraft = null;
       authUi.cloudDraftStatus.textContent = '未登录 · 暂不同步云端';
@@ -76,11 +105,15 @@
 
     authUi.name.textContent = currentUser.username;
     authUi.balance.textContent = currentUser.isSuperuser ? '全部免费' : formatFen(currentUser.balanceFen);
-    authUi.plan.textContent = currentUser.isSuperuser ? '超级测试权限 · PDF 与后续收费功能均不扣费' : '自制 PDF 每次 ¥0.10；共享图纸每次 ¥0.01';
+    authUi.plan.textContent = currentUser.isSuperuser ? '超级测试权限 · PDF 与后续收费功能均不扣费' : `登录用户 PDF 每次 ${formatFen(pricing.memberOwnPdfFen)}；游客每次 ${formatFen(pricing.guestOwnPdfFen)}`;
     if (currentUser.isSuperuser) authUi.binding.textContent = '超级权限测试账户';
     else if (currentUser.email) authUi.binding.textContent = currentUser.emailVerified ? `已验证邮箱：${currentUser.email}` : `邮箱待验证：${currentUser.email}`;
     else if (currentUser.phone) authUi.binding.textContent = currentUser.phoneVerified ? `已验证手机：${currentUser.phone}` : `手机待验证：${currentUser.phone}`;
     else authUi.binding.textContent = '尚未绑定邮箱或手机号';
+    const preferredChannel = currentUser.email && !currentUser.emailVerified ? 'email' : currentUser.phone && !currentUser.phoneVerified ? 'phone' : 'email';
+    authUi.bindChannel.value = preferredChannel;
+    authUi.bindDestination.value = preferredChannel === 'email' ? (currentUser.email || '') : (currentUser.phone || '');
+    updateBindPlaceholder();
     if (previousUserId !== currentUser.id) refreshCloudDraft();
   }
 
@@ -176,8 +209,31 @@
 
   function openCheckout(onAuthorized) {
     pendingDownload = typeof onAuthorized === 'function' ? onAuthorized : null;
+    const price = currentUser ? pricing.memberOwnPdfFen : pricing.guestOwnPdfFen;
+    authUi.checkoutPrice.textContent = currentUser && currentUser.isSuperuser ? '免费' : formatFen(price);
+    authUi.checkoutPriceNote.textContent = currentUser ? (currentUser.isSuperuser ? '超级测试账户不收费' : '登录用户专享价格') : '游客下载价格';
     authUi.checkoutModal.hidden = false;
     document.body.classList.add('modal-open');
+  }
+
+  function updateBindPlaceholder() {
+    const email = authUi.bindChannel.value === 'email';
+    authUi.bindDestination.placeholder = email ? '邮箱地址' : '手机号，例如 13800138000';
+    authUi.bindDestination.autocomplete = email ? 'email' : 'tel';
+  }
+
+  function openResetModal() {
+    closeModal();
+    authUi.resetError.textContent = '';
+    authUi.resetModal.hidden = false;
+    document.body.classList.add('modal-open');
+    authUi.resetIdentifier.focus();
+  }
+
+  function closeResetModal() {
+    authUi.resetModal.hidden = true;
+    authUi.resetError.textContent = '';
+    document.body.classList.remove('modal-open');
   }
 
   function closeCheckout() {
@@ -213,8 +269,56 @@
   authUi.modal.addEventListener('click', event => { if (event.target === authUi.modal) closeModal(); });
   authUi.loginTab.addEventListener('click', () => showTab('login'));
   authUi.registerTab.addEventListener('click', () => showTab('register'));
-  authUi.forgot.addEventListener('click', () => {
-    authUi.error.textContent = '找回密码需要先接入邮件或短信验证码服务，当前尚未开放。';
+  authUi.forgot.addEventListener('click', openResetModal);
+  authUi.resetClose.addEventListener('click', closeResetModal);
+  authUi.resetModal.addEventListener('click', event => { if (event.target === authUi.resetModal) closeResetModal(); });
+  authUi.bindChannel.addEventListener('change', updateBindPlaceholder);
+  authUi.sendBindCode.addEventListener('click', async () => {
+    authUi.bindStatus.textContent = ''; authUi.sendBindCode.disabled = true;
+    try {
+      const result = await api('/api/auth/contact/request-code', { method: 'POST', body: JSON.stringify({
+        channel: authUi.bindChannel.value, destination: authUi.bindDestination.value
+      }) });
+      authUi.bindStatus.textContent = result.developmentCode
+        ? `本地测试验证码：${result.developmentCode}（正式部署不会显示）` : result.message;
+    } catch (error) { authUi.bindStatus.textContent = error.message; }
+    finally { authUi.sendBindCode.disabled = false; }
+  });
+  authUi.verifyBindCode.addEventListener('click', async () => {
+    authUi.bindStatus.textContent = ''; authUi.verifyBindCode.disabled = true;
+    try {
+      const result = await api('/api/auth/contact/verify', { method: 'POST', body: JSON.stringify({
+        channel: authUi.bindChannel.value, destination: authUi.bindDestination.value, code: authUi.bindCode.value
+      }) });
+      renderAccount(result.user); authUi.bindCode.value = ''; authUi.bindStatus.textContent = result.message; notify(result.message);
+    } catch (error) { authUi.bindStatus.textContent = error.message; }
+    finally { authUi.verifyBindCode.disabled = false; }
+  });
+  authUi.sendResetCode.addEventListener('click', async () => {
+    authUi.resetError.textContent = ''; authUi.sendResetCode.disabled = true;
+    try {
+      const result = await api('/api/auth/password/request-code', { method: 'POST', body: JSON.stringify({
+        identifier: authUi.resetIdentifier.value, channel: authUi.resetChannel.value
+      }) });
+      authUi.resetError.textContent = result.developmentCode
+        ? `本地测试验证码：${result.developmentCode}（正式部署不会显示）` : result.message;
+    } catch (error) { authUi.resetError.textContent = error.message; }
+    finally { authUi.sendResetCode.disabled = false; }
+  });
+  authUi.resetForm.addEventListener('submit', async event => {
+    event.preventDefault(); authUi.resetError.textContent = '';
+    if (authUi.resetPassword.value !== authUi.resetPasswordConfirm.value) {
+      authUi.resetError.textContent = '两次输入的新密码不一致'; return;
+    }
+    const button = authUi.resetForm.querySelector('[type="submit"]'); button.disabled = true;
+    try {
+      const result = await api('/api/auth/password/reset', { method: 'POST', body: JSON.stringify({
+        identifier: authUi.resetIdentifier.value, channel: authUi.resetChannel.value,
+        code: authUi.resetCode.value, password: authUi.resetPassword.value
+      }) });
+      authUi.resetForm.reset(); closeResetModal(); openModal(); showTab('login'); notify(result.message);
+    } catch (error) { authUi.resetError.textContent = error.message; }
+    finally { button.disabled = false; }
   });
   authUi.loginForm.addEventListener('submit', event => {
     event.preventDefault();
@@ -266,10 +370,11 @@
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     if (!authUi.checkoutModal.hidden) closeCheckout();
+    else if (!authUi.resetModal.hidden) closeResetModal();
     else if (!authUi.modal.hidden) closeModal();
   });
 
-  window.PindouBilling = Object.freeze({ requestOwnDownload: openCheckout, ownPdfPriceFen: 10 });
+  window.PindouBilling = Object.freeze({ requestOwnDownload: openCheckout, guestOwnPdfFen: 100, memberOwnPdfFen: 50 });
   window.PindouCloudDraft = Object.freeze({
     queueSave: queueCloudDraft,
     save: saveCloudDraft,
@@ -278,10 +383,20 @@
   });
 
   api('/api/auth/me')
-    .then(result => renderAccount(result.user))
+    .then(result => { renderPricing(result.pricing); renderAccount(result.user); })
     .catch(() => renderAccount(null));
+  api('/api/auth/config')
+    .then(result => {
+      verificationStatus = result.verification || verificationStatus;
+      const available = [verificationStatus.emailConfigured && '邮箱', verificationStatus.smsConfigured && '手机'].filter(Boolean);
+      authUi.resetProviderStatus.textContent = available.length
+        ? `${verificationStatus.mode === 'console' ? '本地测试模式：' : ''}可使用${available.join('或')}验证码。`
+        : '验证码发送服务尚未配置，请先完成服务器环境变量配置。';
+    })
+    .catch(() => { authUi.resetProviderStatus.textContent = '无法读取验证码服务状态'; });
   api('/api/billing/config')
     .then(result => {
+      renderPricing(result.pricing);
       const status = result.wechatPay;
       authUi.guestCheckoutHint.textContent = status && status.configured
         ? '商户参数已配置 · 下单接口开发中'

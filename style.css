@@ -196,6 +196,16 @@ button { color: inherit; }
 .balance-card strong { font-size: 24px; }
 .balance-card small { line-height: 1.5; }
 .auth-member .auth-submit { grid-column: 1 / -1; }
+.contact-binding { grid-column: 1 / -1; display: grid; gap: 8px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: #faf8f4; }
+.contact-binding > strong { font-size: 11px; }
+.contact-row { display: grid; grid-template-columns: 76px 1fr auto; gap: 6px; }
+.contact-row.contact-code { grid-template-columns: 1fr auto; }
+.contact-row input, .contact-row select, .reset-dialog select { min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 8px; outline: 0; background: white; font-size: 10px; }
+.contact-row button, .reset-code-row > button { border: 0; border-radius: 8px; padding: 8px 10px; color: white; background: var(--green); cursor: pointer; font-size: 9px; font-weight: 750; }
+.contact-row button:disabled, .reset-code-row > button:disabled { opacity: .5; cursor: wait; }
+.contact-binding > small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.reset-code-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; align-items: end; }
+.reset-code-row label { min-width: 0; }
 .auth-autoclose { margin: 13px 0 0; padding: 9px 11px; border-radius: 9px; color: var(--green); background: #e8f2ed; font-size: 10px; line-height: 1.5; text-align: center; }
 .auth-autoclose b { font-size: 12px; }
 .checkout-modal { position: fixed; inset: 0; z-index: 36; display: grid; place-items: center; padding: 20px; background: rgba(31,29,26,.5); backdrop-filter: blur(4px); }

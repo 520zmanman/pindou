@@ -8,13 +8,13 @@
   <meta http-equiv="Expires" content="0" />
   <meta name="theme-color" content="#f7f4ee" />
   <title>豆格 · 拼豆图纸生成器</title>
-  <link rel="stylesheet" href="./style.css?v=20260927-poster-pdf-v14" />
+  <link rel="stylesheet" href="./style.css?v=20260927-recovery-pricing-v15" />
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="#" aria-label="豆格首页"><span class="brand-mark">豆</span><span>豆格</span></a>
     <span class="tagline">把喜欢的图片，变成一颗颗豆子</span>
-    <span class="build-badge">160 格大幅面 PDF 版 v14</span>
+    <span class="build-badge">找回密码与分级定价版 v15</span>
     <button class="account-button" id="accountButton" type="button"><span>◎</span><b>登录 / 注册</b></button>
     <div class="privacy"><span class="status-dot"></span>图片默认仅在本地处理</div>
   </header>
@@ -89,7 +89,7 @@
       <section class="export-section">
         <div class="section-heading"><span class="step">04</span><h2>导出图纸</h2></div>
         <div class="button-grid">
-          <button class="primary" id="exportPng">付费下载 PDF 图纸 <span>¥0.10</span></button>
+          <button class="primary" id="exportPng">付费下载 PDF 图纸 <span id="exportPrice">游客 ¥1.00 / 登录 ¥0.50</span></button>
           <button class="secondary" id="exportCsv">导出用量清单</button>
         </div>
       </section>
@@ -193,11 +193,36 @@
       <div id="authMember" class="auth-member" hidden>
         <span class="auth-avatar">豆</span>
         <div><small>当前账号</small><strong id="accountName">—</strong><em id="accountBinding">尚未绑定联系方式</em></div>
-        <div class="balance-card"><span>账户余额与权限</span><strong id="accountBalance">¥0.00</strong><small id="accountPlan">自制 PDF 每次 ¥0.10；共享图纸每次 ¥0.01</small></div>
+        <div class="balance-card"><span>账户余额与权限</span><strong id="accountBalance">¥0.00</strong><small id="accountPlan">登录用户下载 PDF 每次 ¥0.50；游客每次 ¥1.00</small></div>
+        <div class="contact-binding">
+          <strong>绑定找回密码方式</strong>
+          <div class="contact-row"><select id="bindChannel"><option value="email">邮箱</option><option value="phone">手机号</option></select><input id="bindDestination" placeholder="邮箱地址" autocomplete="email" /><button id="sendBindCode" type="button">发送验证码</button></div>
+          <div class="contact-row contact-code"><input id="bindCode" inputmode="numeric" maxlength="6" placeholder="6 位验证码" /><button id="verifyBindCode" type="button">验证并绑定</button></div>
+          <small id="bindStatus">绑定并验证后，才可通过该邮箱或手机号找回密码。</small>
+        </div>
         <button class="auth-submit" id="logoutButton" type="button">退出登录</button>
       </div>
       <p class="auth-autoclose" id="authAutoClose" hidden>登录成功，本窗口将在 <b id="authCountdown">10</b> 秒后自动关闭。</p>
       <p class="auth-error" id="authError" role="alert"></p>
+    </section>
+  </div>
+
+  <div class="auth-modal" id="resetModal" hidden>
+    <section class="auth-dialog reset-dialog" role="dialog" aria-modal="true" aria-labelledby="resetTitle">
+      <button class="replace-close" id="resetClose" aria-label="关闭">×</button>
+      <span class="eyebrow">找回密码</span>
+      <h2 id="resetTitle">使用验证码重置密码</h2>
+      <p class="auth-intro">只有已经绑定并验证的邮箱或手机号可以接收验证码。验证码 10 分钟有效。</p>
+      <form id="resetForm" class="auth-form">
+        <label><span>账号</span><input id="resetIdentifier" autocomplete="username" placeholder="用户名、已验证邮箱或手机号" required /></label>
+        <label><span>验证方式</span><select id="resetChannel"><option value="email">邮箱验证码</option><option value="phone">手机验证码</option></select></label>
+        <div class="reset-code-row"><label><span>验证码</span><input id="resetCode" inputmode="numeric" maxlength="6" placeholder="6 位数字" required /></label><button id="sendResetCode" type="button">发送验证码</button></div>
+        <label><span>新密码</span><input id="resetPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="至少 8 位" required /></label>
+        <label><span>确认新密码</span><input id="resetPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="72" required /></label>
+        <button class="auth-submit" type="submit">重置密码</button>
+      </form>
+      <p class="auth-note" id="resetProviderStatus">正在检查验证码服务…</p>
+      <p class="auth-error" id="resetError" role="alert"></p>
     </section>
   </div>
 
@@ -206,18 +231,18 @@
       <button class="replace-close" id="checkoutClose" aria-label="关闭">×</button>
       <span class="eyebrow">下载结算</span>
       <h2 id="checkoutTitle">高清 PDF 图纸下载</h2>
-      <div class="checkout-price"><small>本次下载</small><strong>¥0.10</strong><span>每次生成下载均单独计费</span></div>
+      <div class="checkout-price"><small>本次下载</small><strong id="checkoutPrice">¥1.00</strong><span id="checkoutPriceNote">游客下载价格</span></div>
       <div class="checkout-options">
-        <button id="guestCheckout" type="button" disabled><b>游客微信支付</b><small id="guestCheckoutHint">微信支付 Native 待配置</small></button>
-        <button id="accountCheckout" type="button"><b>登录账号支付</b><small id="accountCheckoutHint">登录后可使用账户余额</small></button>
+        <button id="guestCheckout" type="button" disabled><b>游客微信支付 ¥1.00</b><small id="guestCheckoutHint">微信支付 Native 待配置</small></button>
+        <button id="accountCheckout" type="button"><b>登录后 ¥0.50 下载</b><small id="accountCheckoutHint">登录账户享受半价</small></button>
       </div>
-      <p class="checkout-notice">当前尚未配置微信支付或支付宝商户接口，因此暂不开放真实下载。支付接入后，游客无需注册也能付款下载。</p>
+      <p class="checkout-notice">游客价格为 ¥1.00，登录用户价格为 ¥0.50。当前仍需配置微信支付商户密钥并完成 Native 下单与回调验签，才会开放真实付费下载。</p>
     </section>
   </div>
 
   <div class="toast" id="toast" role="status"></div>
   <script src="./mard-palette.js?v=20260927-draft-v7"></script>
-  <script src="./app.js?v=20260927-poster-pdf-v14"></script>
-  <script src="./account.js?v=20260927-poster-pdf-v14"></script>
+  <script src="./app.js?v=20260927-recovery-pricing-v15"></script>
+  <script src="./account.js?v=20260927-recovery-pricing-v15"></script>
 </body>
 </html>

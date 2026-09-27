@@ -1,4 +1,4 @@
-window.PINDOU_BUILD = '2026.09.27-poster-pdf-v14';
+window.PINDOU_BUILD = '2026.09.27-recovery-pricing-v15';
 const el = id => document.getElementById(id);
 const ui = {
   fileInput: el('fileInput'), dropZone: el('dropZone'), fileCard: el('fileCard'), sourceThumb: el('sourceThumb'),
