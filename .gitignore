@@ -3,3 +3,6 @@ private-migration/
 
 # Local account database and SQLite journal files.
 data/
+
+# Installed Node dependencies are restored from package-lock.json.
+node_modules/

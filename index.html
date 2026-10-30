@@ -6,21 +6,23 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <meta name="theme-color" content="#f7f4ee" />
+  <meta name="theme-color" content="#f4f1e9" />
+  <meta name="color-scheme" content="light" />
   <title>豆格 · 拼豆图纸生成器</title>
-  <link rel="stylesheet" href="./style.css?v=20260927-recovery-pricing-v15" />
+  <link rel="stylesheet" href="./style.css?v=20261030-layout-v61" />
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="#" aria-label="豆格首页"><span class="brand-mark">豆</span><span>豆格</span></a>
-    <span class="tagline">把喜欢的图片，变成一颗颗豆子</span>
-    <span class="build-badge">找回密码与分级定价版 v15</span>
+    <span class="tagline">把喜欢的图片变成纪念品</span>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-controls="controlsPanel" aria-expanded="true">◧ 收起菜单</button>
+    <button class="feedback-button" id="galleryButton" type="button">作品画廊</button>
+    <button class="feedback-button" id="feedbackButton" type="button">用户反馈</button>
     <button class="account-button" id="accountButton" type="button"><span>◎</span><b>登录 / 注册</b></button>
-    <div class="privacy"><span class="status-dot"></span>图片默认仅在本地处理</div>
   </header>
 
   <main class="app-shell">
-    <aside class="panel controls">
+    <aside class="panel controls" id="controlsPanel">
       <section>
         <div class="section-heading"><span class="step">01</span><h2>选择图片</h2></div>
         <label class="drop-zone" id="dropZone" for="fileInput">
@@ -34,46 +36,68 @@
           <div><strong id="fileName">示例图片</strong><small id="fileMeta">本地图片</small></div>
           <button class="icon-button" id="removeImage" title="移除图片" aria-label="移除图片">×</button>
         </div>
+        <div class="source-tools" id="sourceTools" hidden>
+          <button type="button" id="cropSource">裁剪原图</button><button type="button" id="flipSourceX">水平翻转</button><button type="button" id="flipSourceY">垂直翻转</button><button type="button" id="resetSource">重置原图</button>
+        </div>
       </section>
 
-      <section>
+      <section class="paper-settings">
         <div class="section-heading"><span class="step">02</span><h2>设置图纸</h2></div>
+        <div class="paper-settings-group"><h3>尺寸与配色</h3>
         <div class="control-row">
           <label>网格尺寸</label>
-          <span class="dimension-hint">横向 × 纵向</span>
+          <span class="dimension-hint">最高 600 × 600</span>
         </div>
         <div class="dimension-inputs">
-          <label><input id="gridWidth" type="number" min="8" max="160" value="80" /><span>列</span></label>
+          <label><input id="gridWidth" type="number" min="8" max="600" value="80" /><span>列</span></label>
           <b>×</b>
-          <label><input id="gridHeight" type="number" min="8" max="160" value="40" /><span>行</span></label>
+          <label><input id="gridHeight" type="number" min="8" max="600" value="40" /><span>行</span></label>
         </div>
         <div class="preset-row">
           <button data-size="40x40">40 × 40</button><button data-size="80x40" class="active">80 × 40</button><button data-size="80x80">80 × 80</button>
         </div>
-        <p class="algorithm-note">直接在原图中划分等面积区域，并计算区域内全部像素的平均值，不压缩原图。</p>
-
         <div class="control-row palette-row">
           <label for="colorCount">颜色数量</label>
-          <label class="color-count-input"><input id="colorCount" type="number" min="4" max="64" value="16" step="1" inputmode="numeric" /><span>色</span></label>
+          <label class="color-count-input"><input id="colorCount" type="number" min="4" max="291" value="16" step="1" inputmode="numeric" /><span>色</span></label>
         </div>
-        <p class="algorithm-note color-note">可输入 4–64；这是颜色上限，相近颜色匹配到同一 MARD 色号后，实际用色可能更少。</p>
-
-        <div class="sheet-mode" aria-label="当前图纸样式">
-          <span>▦</span><div><strong>方格图纸</strong><small>每个色块完整填满一个格子</small></div>
+        <p class="algorithm-note color-note">可选择 4–291 种 MARD 色号。</p>
         </div>
-
-        <div class="grid-guides">
-          <label><span>红线分区</span><select id="majorGridSize"><option value="5" selected>每 5 格</option><option value="10">每 10 格</option></select></label>
-          <label><span>红线样式</span><select id="majorGridStyle"><option value="solid" selected>实线</option><option value="dashed">虚线</option></select></label>
+        <div class="processing-settings">
+          <h3>图像处理</h3>
+          <label for="processingMode">处理模式</label>
+          <select id="processingMode"><option value="realistic">真实</option><option value="cartoon">卡通</option></select>
+          <label class="grid-interval-range"><span>颜色合并程度 <output id="mergeStrengthValue">35</output></span><input id="mergeStrength" type="range" min="0" max="100" value="35" step="1"><small><i>少</i><i>多</i></small></label>
         </div>
 
-        <label class="check-row"><span>显示细网格线<small>坐标与红色分区线始终显示</small></span><input id="showGrid" type="checkbox" checked /><i></i></label>
+        <div class="unified-grid-settings">
+          <div class="setting-subhead"><strong>图纸网格设置</strong><small>实时预览与下载 PDF 使用同一套设置</small></div>
+          <label class="grid-interval-range">
+            <span>粗网格线间隔 <output id="gridIntervalValue" for="majorGridSize">每 5 格</output></span>
+            <input id="majorGridSize" type="range" min="0" max="20" value="5" step="1" />
+            <small><i>0</i><i>20</i></small>
+          </label>
+          <div class="grid-guides">
+            <label><span>粗线颜色</span><input id="exportMajorGridColor" type="color" value="#E83F36" /></label>
+            <label><span>细线颜色</span><input id="exportMinorGridColor" type="color" value="#77736D" /></label>
+          </div>
+          <label class="grid-style-select"><span>粗线样式</span><select id="majorGridStyle"><option value="solid" selected>实线</option><option value="dashed">虚线</option></select></label>
+        <label class="check-row"><span>显示细网格线<small>粗网格线由上方间隔控制，坐标始终显示</small></span><input id="showGrid" type="checkbox" checked /><i></i></label>
         <label class="check-row"><span>显示色号<small>直接显示 MARD 编号</small></span><input id="showSymbols" type="checkbox" checked /><i></i></label>
         <label class="check-row"><span>忽略近白背景<small>自动留空白色区域</small></span><input id="removeWhite" type="checkbox" /><i></i></label>
+        </div>
       </section>
 
+      <section id="layersPanel">
+        <div class="section-heading"><span class="step">03</span><h2>图层</h2></div>
+        <div class="layer-sticker-card"><span>贴纸素材<small>预制造型 / 图片</small></span><button id="addSticker" class="sticker-launch" type="button">＋ 添加贴纸</button></div>
+        <input id="stickerFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+        <div class="studio-actions layer-action-box"><div class="layer-action-row"><button type="button" data-layer-action="add">新建</button><button type="button" data-layer-action="duplicate">复制</button><button type="button" data-layer-action="rename">重命名</button><button type="button" data-layer-action="remove">删除</button></div><div class="layer-action-row"><button type="button" data-layer-action="up">上移</button><button type="button" data-layer-action="down">下移</button><button type="button" data-layer-action="clear">清空本层</button></div></div>
+        <div class="layer-move-controls" aria-label="移动当前图层"><span>移动当前图层</span><label>步长 <input id="layerMoveStep" type="number" min="1" max="600" value="1"> 格</label><div><button type="button" data-layer-move="-1,0" aria-label="图层左移">←</button><button type="button" data-layer-move="0,-1" aria-label="图层上移">↑</button><button type="button" data-layer-move="0,1" aria-label="图层下移">↓</button><button type="button" data-layer-move="1,0" aria-label="图层右移">→</button></div></div>
+        <label class="layer-scale-setting"><span>缩放比例 <input id="layerScalePercent" type="number" min="1" max="5000" value="100" aria-label="图层缩放百分比"> %</span><input id="layerScaleRange" type="range" min="1" max="5000" value="100" step="1" aria-label="图层缩放"><small>最低1%，最大5000%</small></label>
+        <div class="layer-stack-card"><div class="layer-stack-heading"><strong>图层列表</strong><span>选中后编辑</span></div><div id="layerList"></div><label class="base-layer"><span class="base-layer-icon">▧</span><span>原图转换底层</span><input id="baseLayerVisible" type="checkbox" checked></label></div>
+      </section>
       <section class="draft-section">
-        <div class="section-heading"><span class="step">03</span><h2>草稿缓存</h2></div>
+        <div class="section-heading"><span class="step">04</span><h2>草稿缓存</h2></div>
         <div class="draft-card">
           <div><strong>浏览器与账号草稿</strong><small id="draftStatus">正在检查本地草稿…</small><small id="cloudDraftStatus" class="cloud-draft-status">未登录 · 暂不同步云端</small></div>
           <span class="draft-life">保留 3 天</span>
@@ -83,19 +107,39 @@
           <button id="clearDraft" disabled>删除草稿</button>
           <button id="restoreCloudDraft" class="restore-cloud" hidden>恢复云端草稿</button>
         </div>
-        <p class="algorithm-note">未登录时只保存在当前浏览器；登录后会把原图和编辑记录同步到你的服务器，最后一次保存 3 天后自动删除。</p>
+        <p class="algorithm-note">未登录时只保存在当前本地浏览器；登录后会把原图和编辑记录同步到官方服务器之中，最后一次保存 3 天后自动删除。</p>
       </section>
 
       <section class="export-section">
-        <div class="section-heading"><span class="step">04</span><h2>导出图纸</h2></div>
+        <div class="section-heading"><span class="step">05</span><h2>导出图纸</h2></div>
         <div class="button-grid">
-          <button class="primary" id="exportPng">付费下载 PDF 图纸 <span id="exportPrice">游客 ¥1.00 / 登录 ¥0.50</span></button>
+          <button class="primary export-download" id="exportPng" type="button">
+            <span class="export-button-copy">
+              <b>下载高清 PDF 图纸</b>
+              <small>付款后 2 分钟内可重复下载</small>
+            </span>
+            <span class="export-price" aria-label="下载价格">
+              <small>游客 <b id="exportGuestPrice">¥0.20</b></small>
+              <small>会员 <b id="exportMemberPrice">¥0.10</b></small>
+            </span>
+          </button>
+          <div class="download-access-banner" id="downloadAccessBanner" role="status" aria-live="polite" hidden>
+            <span>PDF 重复下载权限</span>
+            <strong id="downloadAccessCountdown">02:00</strong>
+            <small>倒计时结束前可重复下载，不会再次收费</small>
+          </div>
           <button class="secondary" id="exportCsv">导出用量清单</button>
         </div>
       </section>
     </aside>
 
     <section class="workspace">
+      <div class="editor-page-header" id="editorPageHeader" hidden>
+        <div>
+          <strong>拼豆图纸编辑器</strong>
+        </div>
+        <button id="returnToMain" type="button">返回生成器</button>
+      </div>
       <div class="canvas-toolbar">
         <div>
           <span class="eyebrow">实时预览</span>
@@ -119,22 +163,41 @@
         </div>
         <div class="canvas-scroll" id="canvasScroll" hidden>
           <div class="paint-toolbar" id="paintToolbar">
+            <button id="openEditorButton" class="tool-button editor-launch" type="button" hidden>收起菜单</button>
             <button id="paintToggle" class="tool-button"><span>✎</span> 开启手动涂色</button>
             <button id="eraserButton" class="tool-button" disabled><span>⌫</span> 留空 / 橡皮</button>
+            <button id="fillButton" class="tool-button" disabled><span>▨</span> 填充</button>
+            <button id="lineButton" class="tool-button" disabled><span>╱</span> 直线</button>
+            <button id="rectButton" class="tool-button" disabled><span>□</span> 矩形</button>
+            <button id="selectButton" class="tool-button" disabled><span>▣</span> 选区</button>
+            <button id="panButton" class="tool-button"><span>✥</span> 拖拽</button>
             <button id="referenceToggle" class="tool-button reference-button" aria-pressed="false"><span>◫</span> <b>显示原图</b></button>
             <button id="pickerButton" class="tool-button" disabled><span>⌖</span> 吸取颜色</button>
             <label class="mard-picker"><span>MARD 色号</span><select id="mardColor" disabled></select></label>
+            <button id="openAllColors" class="tool-button palette-browser-button"><span>◉</span> 全色号</button>
             <label class="custom-color" title="选择自定义颜色"><input id="customColor" type="color" value="#ef6a3a" disabled /><span>自定义颜色</span></label>
             <button id="undoButton" class="tool-button" disabled><span>↶</span> 撤销</button>
+            <button id="redoButton" class="tool-button" disabled><span>↷</span> 恢复</button>
+            <button id="finishedPreviewButton" class="tool-button"><span>◇</span> 成品预览</button>
             <div class="zoom-controls" aria-label="绘制区缩放">
               <button id="zoomOut" type="button" title="缩小画布" aria-label="缩小画布">−</button>
               <button id="zoomValue" type="button" title="恢复 100%">100%</button>
               <button id="zoomIn" type="button" title="放大画布" aria-label="放大画布">＋</button>
               <button id="zoomFit" type="button" title="让画布适合绘制区宽度">适合宽度</button>
             </div>
-            <span class="paint-status" id="paintStatus">预览模式</span>
+            <span class="paint-status" id="paintStatus" hidden></span>
           </div>
-          <canvas id="patternCanvas" aria-label="拼豆图纸预览"></canvas>
+          <div class="selection-actions" id="selectionActions" hidden>
+            <strong id="selectionSize">已选择区域</strong>
+            <button id="selectionCopy" type="button">复制</button>
+            <button id="selectionCut" type="button">剪切</button>
+            <button id="selectionPaste" type="button" disabled>粘贴</button>
+            <button id="selectionDelete" type="button">删除</button>
+            <button id="selectionCancel" type="button">取消</button>
+          </div>
+          <div class="pattern-viewport" id="patternViewport">
+            <canvas id="patternCanvas" aria-label="拼豆图纸预览"></canvas>
+          </div>
         </div>
       </div>
 
@@ -144,6 +207,69 @@
       </div>
     </section>
   </main>
+
+  <div class="replace-modal layer-confirm-modal" id="layerConfirmModal" hidden>
+    <section class="layer-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="layerConfirmTitle" aria-describedby="layerConfirmMessage">
+      <h2 id="layerConfirmTitle">确认操作</h2><p id="layerConfirmMessage"></p><small>操作后可以通过“撤销”恢复。</small>
+      <div><button id="layerConfirmCancel" type="button">取消</button><button id="layerConfirmSubmit" type="button">确认</button></div>
+    </section>
+  </div>
+  <div class="replace-modal" id="cropModal" hidden>
+    <section class="source-dialog" role="dialog" aria-modal="true" aria-labelledby="cropTitle">
+      <button class="replace-close" id="cropClose" aria-label="关闭裁剪">×</button><h2 id="cropTitle">裁剪原图</h2>
+      <p>在图片上拖动选择裁剪区域，或输入像素范围。</p>
+      <canvas id="cropCanvas" aria-label="拖动选择裁剪区域"></canvas>
+      <div class="source-fields"><label>左侧 X<input id="cropX" type="number" min="0"></label><label>顶部 Y<input id="cropY" type="number" min="0"></label><label>宽度<input id="cropWidth" type="number" min="1"></label><label>高度<input id="cropHeight" type="number" min="1"></label></div>
+      <div class="studio-actions"><button id="cropFull" type="button">选择全图</button><button id="cropApply" type="button" class="primary">应用裁剪</button></div>
+    </section>
+  </div>
+  <div class="replace-modal" id="stickerModal" hidden>
+    <section class="source-dialog" role="dialog" aria-modal="true" aria-labelledby="stickerTitle">
+      <button class="replace-close" id="stickerClose" aria-label="关闭贴纸">×</button><h2 id="stickerTitle">添加贴纸图层</h2>
+      <div class="sticker-options sticker-source-tabs"><button id="presetStickerToggle" type="button" aria-expanded="false" aria-controls="presetStickerSettings">预制贴纸 ▾</button><button id="stickerUpload" type="button">上传图片贴纸</button></div>
+      <div class="preset-sticker-settings" id="presetStickerSettings" hidden>
+        <fieldset class="sticker-choice-field"><legend>形状</legend><input id="stickerShape" type="hidden" value="heart"><div id="stickerShapeChoices" class="sticker-choice-grid"></div></fieldset>
+        <fieldset class="sticker-choice-field"><legend>风格</legend><input id="stickerStyle" type="hidden" value="solid"><div id="stickerStyleChoices" class="sticker-choice-grid"></div></fieldset>
+        <fieldset class="sticker-color-field"><legend>颜色 · MARD 色板</legend><input id="stickerColor" type="hidden" value="A14"><small id="stickerColorCode"></small>
+          <div class="sticker-color-filters"><input id="stickerColorSearch" type="search" placeholder="搜索色号或 HEX" aria-label="搜索贴纸颜色"><select id="stickerColorSeries" aria-label="筛选贴纸颜色系列"><option value="ALL">全部系列</option></select><span id="stickerColorCount" aria-live="polite"></span></div>
+          <div id="stickerColorGrid" class="sticker-color-grid" aria-label="贴纸 MARD 可选颜色"></div>
+        </fieldset>
+        <label>大小 <output id="stickerSizeValue">32 格</output><input id="stickerSize" type="range" min="3" max="150" value="32"></label>
+      </div>
+      <div class="sticker-workspace"><div class="sticker-preview-heading"><strong>合成预览</strong><span>拖动移动 · 右下角缩放</span></div><div class="sticker-canvas-wrap"><canvas id="stickerPlacement" aria-label="贴纸合成预览：拖动移动，右下角缩放"></canvas></div>
+      <div class="sticker-options sticker-transform-bar"><label><input id="stickerAspect" type="checkbox" checked> 锁定比例</label><div><button id="stickerCenter" type="button">居中</button><button id="stickerRotate" type="button">旋转 90°</button><button id="stickerFlipX" type="button">水平翻转</button><button id="stickerFlipY" type="button">垂直翻转</button><button id="stickerReset" type="button">重置</button></div></div></div>
+      <div class="source-fields"><label>起始列<input id="stickerX" type="number" min="1" value="1"></label><label>起始行<input id="stickerY" type="number" min="1" value="1"></label><label>宽度（格）<input id="stickerWidth" type="number" min="1" max="600" value="32"></label><label>高度（格）<input id="stickerHeight" type="number" min="1" max="600" value="32"></label></div>
+      <p id="stickerStatus" role="status"></p><button class="primary" id="stickerApply" type="button">添加到新图层</button>
+    </section>
+  </div>
+
+  <div class="replace-modal palette-browser-modal" id="paletteBrowserModal" hidden>
+    <section class="palette-browser-dialog" role="dialog" aria-modal="true" aria-labelledby="paletteBrowserTitle">
+      <button class="replace-close" id="paletteBrowserClose" aria-label="关闭">×</button>
+      <span class="eyebrow">MARD 专业色板</span>
+      <h2 id="paletteBrowserTitle">全色号预览</h2>
+      <div class="studio-tabs"><button type="button" id="paletteTab" class="active">色板</button><button type="button" id="inventoryTab">豆库</button></div>
+      <div class="palette-browser-actions">
+        <input id="paletteSearch" type="search" placeholder="搜索色号或 HEX，例如 H19" />
+        <span id="paletteBrowserCount">291 色</span>
+      </div>
+      <div class="palette-browser-body">
+        <nav class="palette-groups" id="paletteGroups" aria-label="色号类别"></nav>
+        <div class="all-colors-grid" id="allColorsGrid"></div>
+      </div>
+      <p id="paletteEditorStatus" role="status"></p>
+      <div class="studio-actions palette-footer"><div class="palette-file-actions"><button type="button" id="paletteSelectAll">全选</button><button type="button" id="paletteClear">清空</button><button type="button" id="paletteImport">导入</button><input id="paletteImportFile" type="file" accept="text/csv,.csv,application/json,.json" hidden><button type="button" id="paletteExport">导出 CSV</button></div><div class="palette-save-actions"><button type="button" id="paletteCancel">取消</button><button type="button" id="paletteApply" class="primary">保存与应用</button></div></div>
+    </section>
+  </div>
+
+  <div class="replace-modal finished-preview-modal" id="finishedPreviewModal" hidden>
+    <section class="finished-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="finishedPreviewTitle">
+      <button class="replace-close" id="finishedPreviewClose" aria-label="关闭">×</button>
+      <span class="eyebrow">完成效果</span>
+      <h2 id="finishedPreviewTitle">拼完后的效果预览</h2>
+      <div class="finished-preview-stage"><canvas id="finishedPreviewCanvas"></canvas></div>
+    </section>
+  </div>
 
   <div class="replace-modal" id="replaceModal" hidden>
     <section class="replace-dialog" role="dialog" aria-modal="true" aria-labelledby="replaceTitle">
@@ -162,12 +288,36 @@
     </section>
   </div>
 
+  <div class="auth-modal" id="feedbackModal" hidden>
+    <section class="auth-dialog feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="feedbackTitle">
+      <button class="replace-close" id="feedbackClose" aria-label="关闭">×</button>
+      <span class="eyebrow">意见与建议</span>
+      <h2 id="feedbackTitle">用户反馈</h2>
+      <p class="auth-intro">游客和登录用户都可以提交建议，内容会直接发送给站点管理员。</p>
+      <form id="feedbackForm" class="auth-form feedback-form">
+        <label><span>反馈内容</span><textarea id="feedbackMessage" minlength="2" maxlength="2000" rows="6" placeholder="请描述你的建议或遇到的问题" required></textarea></label>
+        <label class="feedback-attachment-field">
+          <span>相关截图或证据（选填）</span>
+          <span class="feedback-file-picker">
+            <input id="feedbackAttachment" type="file" accept="image/png,image/jpeg,image/webp" />
+            <span class="feedback-file-button"><b>＋</b> 选择图片</span>
+            <span class="feedback-file-name" id="feedbackAttachmentName">尚未选择图片</span>
+          </span>
+          <small>支持 PNG、JPG、WEBP，最大 2 MB</small>
+        </label>
+        <label><span>联系方式（选填）</span><input id="feedbackContact" maxlength="120" placeholder="邮箱、微信或其他联系方式" /></label>
+        <input class="feedback-trap" id="feedbackWebsite" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" />
+        <button class="auth-submit" type="submit">发送反馈</button>
+      </form>
+      <p class="feedback-status" id="feedbackStatus" role="status"></p>
+    </section>
+  </div>
+
   <div class="auth-modal" id="authModal" hidden>
-    <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <section class="auth-dialog" role="dialog" aria-modal="true" aria-label="豆格账号">
       <button class="replace-close" id="authClose" aria-label="关闭">×</button>
       <span class="eyebrow">豆格账号</span>
-      <h2 id="authTitle">登录后保存云端草稿</h2>
-      <p class="auth-intro">账号将用于三天云缓存、账户余额和付费 PDF 下载。本机处理图片的方式保持不变。</p>
+      <p class="auth-intro">账号将用于三天云缓存、账户余额和付费 PDF 下载。</p>
 
       <div id="authGuest">
         <div class="auth-tabs" role="tablist">
@@ -175,31 +325,50 @@
           <button id="registerTab" type="button" role="tab">注册</button>
         </div>
         <form id="loginForm" class="auth-form">
-          <label><span>账号</span><input id="loginIdentifier" autocomplete="username" placeholder="用户名、已验证邮箱或手机号" required /></label>
+          <label><span>账号</span><input id="loginIdentifier" autocomplete="username" placeholder="用户名或已验证邮箱" required /></label>
           <label><span>密码</span><input id="loginPassword" type="password" autocomplete="current-password" minlength="8" maxlength="72" required /></label>
           <button class="auth-submit" type="submit">登录</button>
           <button class="auth-link" id="forgotPassword" type="button">忘记密码？</button>
         </form>
         <form id="registerForm" class="auth-form" hidden>
           <label><span>用户名</span><input id="registerUsername" autocomplete="username" minlength="3" maxlength="24" placeholder="3–24 位文字、字母或数字" required /></label>
-          <label><span>邮箱（可选）</span><input id="registerEmail" type="email" autocomplete="email" placeholder="验证后可用于找回密码" /></label>
+          <label><span>邮箱</span><input id="registerEmail" type="email" autocomplete="email" placeholder="name@example.com" required /></label>
+          <div class="reset-code-row"><label><span>邮箱验证码</span><input id="registerCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6 位数字" required /></label><button id="sendRegisterCode" type="button" disabled>发送验证码</button></div>
+          <small class="auth-form-status" id="registerCodeStatus">正在检查邮箱服务…</small>
           <label><span>密码</span><input id="registerPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="至少 8 位" required /></label>
           <label><span>确认密码</span><input id="registerPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="72" required /></label>
           <button class="auth-submit" type="submit">创建账号</button>
         </form>
-        <p class="auth-note">邮箱与手机验证码、密码找回将在接入短信或邮件服务后启用。</p>
+        <p class="auth-note">新账号必须先验证邮箱；验证完成后可直接使用邮箱登录和找回密码。</p>
       </div>
 
       <div id="authMember" class="auth-member" hidden>
         <span class="auth-avatar">豆</span>
-        <div><small>当前账号</small><strong id="accountName">—</strong><em id="accountBinding">尚未绑定联系方式</em></div>
-        <div class="balance-card"><span>账户余额与权限</span><strong id="accountBalance">¥0.00</strong><small id="accountPlan">登录用户下载 PDF 每次 ¥0.50；游客每次 ¥1.00</small></div>
+        <div><small>当前账号</small><strong id="accountName">—</strong><em id="accountBinding">尚未设置密保邮箱</em></div>
+        <div class="balance-card"><span>账户余额与权限</span><strong id="accountBalance">¥0.00</strong><small id="accountPlan" hidden></small><button id="openRecharge" type="button">充值余额</button></div>
         <div class="contact-binding">
-          <strong>绑定找回密码方式</strong>
-          <div class="contact-row"><select id="bindChannel"><option value="email">邮箱</option><option value="phone">手机号</option></select><input id="bindDestination" placeholder="邮箱地址" autocomplete="email" /><button id="sendBindCode" type="button">发送验证码</button></div>
+          <strong>设置密保邮箱</strong>
+          <div class="contact-row"><input id="bindDestination" type="email" placeholder="密保邮箱地址" autocomplete="email" /><button id="sendBindCode" type="button">发送验证码</button></div>
           <div class="contact-row contact-code"><input id="bindCode" inputmode="numeric" maxlength="6" placeholder="6 位验证码" /><button id="verifyBindCode" type="button">验证并绑定</button></div>
-          <small id="bindStatus">绑定并验证后，才可通过该邮箱或手机号找回密码。</small>
+          <small id="bindStatus">验证后，该邮箱可用于登录，并可在“忘记密码”中接收找回验证码。</small>
         </div>
+        <div class="contact-binding security-question-setup">
+          <strong>设置备用验证问题</strong>
+          <div class="security-question-fields">
+            <select id="securityQuestionSelect" aria-label="选择验证问题"></select>
+            <input id="securityQuestionAnswer" type="text" autocomplete="off" maxlength="80" spellcheck="false" placeholder="输入问题答案" />
+            <input id="securityQuestionPassword" type="password" autocomplete="current-password" maxlength="72" placeholder="输入当前密码确认" />
+            <button id="saveSecurityQuestion" type="button">保存验证问题</button>
+          </div>
+          <small id="securityQuestionStatus">设置后，可在登录页点击“忘记密码”，通过回答问题重置密码。</small>
+        </div>
+        <div class="reward-admin-config" id="rewardAdminConfig" hidden>
+          <strong>游客赞赏码</strong>
+          <input id="rewardAdminFile" type="file" accept="image/png,image/jpeg,image/webp" />
+          <button id="uploadRewardCode" type="button">上传 / 更换赞赏码原图</button>
+          <small id="rewardAdminStatus">图片保存在服务器私有目录，不会上传到 GitHub。</small>
+        </div>
+        <button class="admin-review-button" id="adminReviewButton" type="button" hidden>审核游客付款</button>
         <button class="auth-submit" id="logoutButton" type="button">退出登录</button>
       </div>
       <p class="auth-autoclose" id="authAutoClose" hidden>登录成功，本窗口将在 <b id="authCountdown">10</b> 秒后自动关闭。</p>
@@ -211,12 +380,17 @@
     <section class="auth-dialog reset-dialog" role="dialog" aria-modal="true" aria-labelledby="resetTitle">
       <button class="replace-close" id="resetClose" aria-label="关闭">×</button>
       <span class="eyebrow">找回密码</span>
-      <h2 id="resetTitle">使用验证码重置密码</h2>
-      <p class="auth-intro">只有已经绑定并验证的邮箱或手机号可以接收验证码。验证码 10 分钟有效。</p>
+      <h2 id="resetTitle">选择找回方式并重置密码</h2>
+      <p class="auth-intro">使用已设置的密保邮箱接收验证码，或回答预先设置的备用验证问题。</p>
       <form id="resetForm" class="auth-form">
-        <label><span>账号</span><input id="resetIdentifier" autocomplete="username" placeholder="用户名、已验证邮箱或手机号" required /></label>
-        <label><span>验证方式</span><select id="resetChannel"><option value="email">邮箱验证码</option><option value="phone">手机验证码</option></select></label>
-        <div class="reset-code-row"><label><span>验证码</span><input id="resetCode" inputmode="numeric" maxlength="6" placeholder="6 位数字" required /></label><button id="sendResetCode" type="button">发送验证码</button></div>
+        <label><span>账号</span><input id="resetIdentifier" autocomplete="username" placeholder="用户名或已验证邮箱" required /></label>
+        <label><span>找回方式</span><select id="resetChannel"><option value="email">密保邮箱验证码</option><option value="security_question">备用验证问题</option></select></label>
+        <div class="reset-code-row" id="resetEmailFields"><label><span>验证码</span><input id="resetCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 位数字" /></label><button id="sendResetCode" type="button">发送验证码</button></div>
+        <div class="security-reset-fields" id="resetSecurityFields" hidden>
+          <button id="loadSecurityQuestion" type="button">加载验证问题</button>
+          <div class="security-question-card"><small>验证问题</small><strong id="resetSecurityQuestionText">请先输入账号并加载问题</strong></div>
+          <label><span>答案</span><input id="resetSecurityAnswer" type="text" autocomplete="off" maxlength="80" spellcheck="false" placeholder="输入之前设置的答案" /></label>
+        </div>
         <label><span>新密码</span><input id="resetPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="至少 8 位" required /></label>
         <label><span>确认新密码</span><input id="resetPasswordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="72" required /></label>
         <button class="auth-submit" type="submit">重置密码</button>
@@ -231,18 +405,107 @@
       <button class="replace-close" id="checkoutClose" aria-label="关闭">×</button>
       <span class="eyebrow">下载结算</span>
       <h2 id="checkoutTitle">高清 PDF 图纸下载</h2>
-      <div class="checkout-price"><small>本次下载</small><strong id="checkoutPrice">¥1.00</strong><span id="checkoutPriceNote">游客下载价格</span></div>
+      <div class="checkout-price"><small>本次下载</small><strong id="checkoutPrice">¥0.20</strong><span id="checkoutPriceNote">游客下载价格</span></div>
       <div class="checkout-options">
-        <button id="guestCheckout" type="button" disabled><b>游客微信支付 ¥1.00</b><small id="guestCheckoutHint">微信支付 Native 待配置</small></button>
-        <button id="accountCheckout" type="button"><b>登录后 ¥0.50 下载</b><small id="accountCheckoutHint">登录账户享受半价</small></button>
+        <button id="guestCheckout" type="button" disabled><b>游客赞赏码支付 ¥0.20</b><small id="guestCheckoutHint">赞赏码图片待配置</small></button>
+        <button id="accountCheckout" type="button"><b>会员价 ¥0.10 下载</b><small id="accountCheckoutHint" hidden></small></button>
+        <button id="memberRewardCheckout" type="button" hidden><b>赞赏码直接支付 ¥0.10</b><small>无需充值，付款后 2 分钟内可重复下载</small></button>
+        <button id="checkoutRecharge" class="checkout-recharge-option" type="button" hidden><b>充值账户余额</b><small>充值后可用于本次及之后的图纸下载</small></button>
       </div>
-      <p class="checkout-notice">游客价格为 ¥1.00，登录用户价格为 ¥0.50。当前仍需配置微信支付商户密钥并完成 Native 下单与回调验签，才会开放真实付费下载。</p>
+      <div class="recharge-setup" id="rechargeSetup" hidden>
+        <strong>选择充值金额</strong>
+        <div class="recharge-presets">
+          <button type="button" data-fen="100">¥1</button><button type="button" data-fen="500">¥5</button><button type="button" data-fen="1000">¥10</button><button type="button" data-fen="2000">¥20</button>
+        </div>
+        <label><span>自定义金额（1–500 元）</span><input id="rechargeAmount" type="number" min="1" max="500" step="0.01" value="10.00" inputmode="decimal" /></label>
+        <p class="recharge-amount-warning">注意：充值订单金额与付款截图金额不一致可能造成严重程序错误。请不要随意填写订单金额或支付不同金额。若发生充值错误，请通过“用户反馈”提交付款截图和相关证据，后台管理员将在几天内处理。</p>
+        <button class="auth-submit" id="createRechargeOrder" type="button">使用赞赏码充值</button>
+        <button class="secondary" id="cancelRecharge" type="button">取消</button>
+      </div>
+      <div class="reward-checkout" id="rewardCheckout" hidden>
+        <button class="reward-back" id="rewardBack" type="button">← 返回支付方式</button>
+        <div class="reward-order-head"><div><small id="rewardOrderType">游客订单</small><strong id="rewardOrderId">—</strong></div><b id="rewardAmount">¥0.20</b></div>
+        <button class="replace-payment-order" id="replacePaymentOrder" type="button">↻ 更换订单并重置 2 分钟</button>
+        <p class="reward-amount-warning" id="rewardAmountWarning" hidden></p>
+        <img id="rewardCodeImage" alt="微信赞赏码" />
+        <div class="reward-trust-warning reward-countdown-card" role="timer" aria-live="polite">
+          <span id="rewardCountdownLabel">付款剩余时间</span>
+          <strong id="rewardCountdown">02:00</strong>
+        </div>
+        <aside class="proof-example" aria-labelledby="proofExampleTitle">
+          <a href="./assets/payment-proof-example.png" target="_blank" rel="noopener" title="打开付款凭证示例大图">
+            <img src="./assets/payment-proof-example.png" alt="已脱敏的微信支付凭证截图示例" loading="lazy" />
+          </a>
+          <div>
+            <strong id="proofExampleTitle">付款凭证示例</strong>
+            <p>支付成功后，进入“微信支付” → 点击对应的“微信支付凭证” → “截图保存”，再上传完整截图。</p>
+          </div>
+        </aside>
+        <label hidden><span>微信支付单号或付款备注（选填）</span><input id="rewardReference" maxlength="80" placeholder="可填写微信支付单号后 8 位" /></label>
+        <label class="proof-upload">
+          <span>支付成功截图（必填）</span>
+          <span class="feedback-file-picker payment-proof-picker">
+            <input id="rewardProof" type="file" accept="image/png,image/jpeg,image/webp" />
+            <span class="feedback-file-button"><b>＋</b> 选择截图</span>
+            <span class="feedback-file-name" id="rewardProofName">尚未选择截图</span>
+          </span>
+          <small>需清晰显示付款金额和时间；支持 PNG、JPG、WEBP，最大 2 MB</small>
+        </label>
+        <img class="proof-preview" id="rewardProofPreview" alt="付款截图预览" hidden />
+        <button class="auth-submit reward-confirm-paid" id="confirmRewardPaid" type="button" hidden>旧版确认入口</button>
+        <button class="auth-submit" id="submitRewardProof" type="button">上传截图并校验</button>
+        <button class="secondary reward-refresh" id="refreshRewardStatus" type="button" hidden>刷新审核状态</button>
+        <p class="reward-status" id="rewardStatus"></p>
+      </div>
+      <p class="checkout-notice" id="checkoutNotice">赞赏码订单需在前 2 分钟内付款，付款后额外保留 5 分钟上传截图。账户用户也可使用余额立即支付。付款后 2 分钟内可以重复下载。</p>
+    </section>
+  </div>
+
+  <div class="auth-modal" id="adminReviewModal" hidden>
+    <section class="auth-dialog admin-review-dialog" role="dialog" aria-modal="true" aria-labelledby="adminReviewTitle">
+      <button class="replace-close" id="adminReviewClose" aria-label="关闭">×</button>
+      <span class="eyebrow">超级账户</span>
+      <h2 id="adminReviewTitle">游客付款审核</h2>
+      <p class="auth-intro">核对赞赏记录、金额、订单号和付款截图。只有确认实际到账后才能批准。</p>
+      <div class="admin-proof" id="adminProofPanel" hidden>
+        <img id="adminProofImage" alt="游客付款截图" />
+        <strong id="adminProofOrder">—</strong><small id="adminProofMeta">—</small>
+        <textarea id="adminReviewNote" maxlength="200" placeholder="审核备注（选填）"></textarea>
+        <div class="admin-review-actions"><button id="rejectGuestOrder" type="button">驳回</button><button id="approveGuestOrder" type="button">确认到账并批准下载</button></div>
+      </div>
+      <button class="secondary admin-refresh" id="refreshGuestOrders" type="button">刷新待审核订单</button>
+      <div class="admin-order-list" id="adminOrderList"></div>
+      <p class="auth-error" id="adminReviewError" role="alert"></p>
+    </section>
+  </div>
+
+  <div class="auth-modal balance-insufficient-modal" id="balanceInsufficientModal" hidden>
+    <section class="auth-dialog balance-insufficient-dialog" role="dialog" aria-modal="true" aria-labelledby="balanceInsufficientTitle">
+      <button class="replace-close" id="balanceInsufficientClose" aria-label="关闭">×</button>
+      <span class="eyebrow">余额支付</span>
+      <h2 id="balanceInsufficientTitle">当前账户余额不足</h2>
+      <p class="auth-intro">本次下载需要 <b id="balanceRequired">¥0.10</b>，当前余额为 <b id="balanceAvailable">¥0.00</b>。你可以先充值，也可以直接使用赞赏码支付本次下载。</p>
+      <div class="balance-insufficient-actions">
+        <button id="insufficientRecharge" type="button">充值账户余额</button>
+        <button id="insufficientDirectPay" type="button">赞赏码直接支付</button>
+      </div>
+      <button class="secondary balance-insufficient-cancel" id="balanceInsufficientCancel" type="button">返回付款方式</button>
     </section>
   </div>
 
   <div class="toast" id="toast" role="status"></div>
-  <script src="./mard-palette.js?v=20260927-draft-v7"></script>
-  <script src="./app.js?v=20260927-recovery-pricing-v15"></script>
-  <script src="./account.js?v=20260927-recovery-pricing-v15"></script>
+  <div class="replace-modal" id="galleryModal" hidden>
+    <section class="palette-browser-dialog" role="dialog" aria-modal="true" aria-labelledby="galleryTitle">
+      <button class="replace-close" id="galleryClose" aria-label="关闭画廊">×</button>
+      <span class="eyebrow">作品社区</span><h2 id="galleryTitle">作品画廊</h2>
+      <div class="studio-actions"><button type="button" id="galleryPublic">公开作品</button><button type="button" id="galleryMine">我的作品</button><button type="button" id="galleryPublish">分享当前作品</button></div>
+      <p id="galleryStatus" role="status"></p><div class="gallery-grid" id="galleryGrid"></div>
+      <form id="galleryPublishForm" hidden><label>作品名称<input id="galleryWorkTitle" maxlength="80" required></label><label><input type="checkbox" id="galleryRights" required> 我有权分享此作品，同意公开展示图纸及允许用户打开使用（不上传原始照片）。</label><button class="primary" type="submit">确认分享</button></form>
+    </section>
+  </div>
+  <script src="./mard-palette.js?v=20261028-mard291"></script>
+  <script src="./app.js?v=20261030-layout-v61"></script>
+  <script src="./account.js?v=20261027-pro-editor-v47"></script>
+  <script src="./gallery.js?v=20261028-studio-v49"></script>
 </body>
 </html>

@@ -1,0 +1,18 @@
+{
+  "name": "pindou",
+  "version": "0.1.0",
+  "private": true,
+  "description": "拼豆图纸生成器本地服务",
+  "scripts": {
+    "start": "node server.js",
+    "test:editor": "node scripts/test-editor.cjs",
+    "test:gallery": "node scripts/test-gallery.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "7.0.0"
+  }
+}
