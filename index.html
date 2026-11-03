@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#f4f1e9" />
   <meta name="color-scheme" content="light" />
   <title>豆格 · 拼豆图纸生成器</title>
-  <link rel="stylesheet" href="./style.css?v=20261030-layout-v61" />
+  <link rel="stylesheet" href="./style.css?v=20261101-checkout-v72" />
 </head>
 <body>
   <header class="topbar">
@@ -112,6 +112,7 @@
 
       <section class="export-section">
         <div class="section-heading"><span class="step">05</span><h2>导出图纸</h2></div>
+        <label class="pdf-layout-setting"><span>PDF 版式</span><select id="pdfLayout"><option value="whole">整体版 · 完整图纸</option><option value="tiled">分页版 * 分区打印（适合高分辨率的图纸）</option></select></label>
         <div class="button-grid">
           <button class="primary export-download" id="exportPng" type="button">
             <span class="export-button-copy">
@@ -317,7 +318,7 @@
     <section class="auth-dialog" role="dialog" aria-modal="true" aria-label="豆格账号">
       <button class="replace-close" id="authClose" aria-label="关闭">×</button>
       <span class="eyebrow">豆格账号</span>
-      <p class="auth-intro">账号将用于三天云缓存、账户余额和付费 PDF 下载。</p>
+      <p class="auth-intro">账号将用于三天云缓存、账户余额、付费 PDF 下载和画廊及积分。</p>
 
       <div id="authGuest">
         <div class="auth-tabs" role="tablist">
@@ -343,9 +344,8 @@
       </div>
 
       <div id="authMember" class="auth-member" hidden>
-        <span class="auth-avatar">豆</span>
-        <div><small>当前账号</small><strong id="accountName">—</strong><em id="accountBinding">尚未设置密保邮箱</em></div>
-        <div class="balance-card"><span>账户余额与权限</span><strong id="accountBalance">¥0.00</strong><small id="accountPlan" hidden></small><button id="openRecharge" type="button">充值余额</button></div>
+        <div class="account-identity"><span class="auth-avatar" aria-hidden="true">豆</span><div><small>当前账号</small><strong id="accountName">—</strong><em id="accountBinding">尚未设置密保邮箱</em></div></div>
+        <div class="balance-card"><div class="account-card-heading"><span>账户资产</span><button id="openRecharge" type="button">充值余额</button></div><div class="account-assets"><div><span>可用余额</span><strong id="accountBalance">¥0.00</strong></div><div><span>画廊积分</span><strong id="accountPoints">0.00 积分</strong></div></div><small>每笔付费PDF订单将兑换10积分。</small><small id="accountPlan" hidden></small></div>
         <div class="contact-binding">
           <strong>设置密保邮箱</strong>
           <div class="contact-row"><input id="bindDestination" type="email" placeholder="密保邮箱地址" autocomplete="email" /><button id="sendBindCode" type="button">发送验证码</button></div>
@@ -403,9 +403,9 @@
   <div class="checkout-modal" id="checkoutModal" hidden>
     <section class="checkout-dialog" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
       <button class="replace-close" id="checkoutClose" aria-label="关闭">×</button>
-      <span class="eyebrow">下载结算</span>
+      <span class="eyebrow" id="checkoutEyebrow">下载结算</span>
       <h2 id="checkoutTitle">高清 PDF 图纸下载</h2>
-      <div class="checkout-price"><small>本次下载</small><strong id="checkoutPrice">¥0.20</strong><span id="checkoutPriceNote">游客下载价格</span></div>
+      <div class="checkout-price"><small id="checkoutPurpose">本次下载</small><strong id="checkoutPrice">¥0.20</strong><span id="checkoutPriceNote">游客下载价格</span></div>
       <div class="checkout-options">
         <button id="guestCheckout" type="button" disabled><b>游客赞赏码支付 ¥0.20</b><small id="guestCheckoutHint">赞赏码图片待配置</small></button>
         <button id="accountCheckout" type="button"><b>会员价 ¥0.10 下载</b><small id="accountCheckoutHint" hidden></small></button>
@@ -484,7 +484,8 @@
       <button class="replace-close" id="balanceInsufficientClose" aria-label="关闭">×</button>
       <span class="eyebrow">余额支付</span>
       <h2 id="balanceInsufficientTitle">当前账户余额不足</h2>
-      <p class="auth-intro">本次下载需要 <b id="balanceRequired">¥0.10</b>，当前余额为 <b id="balanceAvailable">¥0.00</b>。你可以先充值，也可以直接使用赞赏码支付本次下载。</p>
+      <div class="balance-comparison"><div><span>本次下载需要</span><b id="balanceRequired">¥0.10</b></div><div><span>当前可用余额</span><b id="balanceAvailable">¥0.00</b></div></div>
+      <p class="auth-intro">你可以先充值账户余额，也可以直接使用赞赏码支付本次下载。</p>
       <div class="balance-insufficient-actions">
         <button id="insufficientRecharge" type="button">充值账户余额</button>
         <button id="insufficientDirectPay" type="button">赞赏码直接支付</button>
@@ -494,18 +495,22 @@
   </div>
 
   <div class="toast" id="toast" role="status"></div>
-  <div class="replace-modal" id="galleryModal" hidden>
-    <section class="palette-browser-dialog" role="dialog" aria-modal="true" aria-labelledby="galleryTitle">
-      <button class="replace-close" id="galleryClose" aria-label="关闭画廊">×</button>
-      <span class="eyebrow">作品社区</span><h2 id="galleryTitle">作品画廊</h2>
-      <div class="studio-actions"><button type="button" id="galleryPublic">公开作品</button><button type="button" id="galleryMine">我的作品</button><button type="button" id="galleryPublish">分享当前作品</button></div>
+  <div class="gallery-page" id="galleryModal" hidden>
+    <section class="gallery-content" aria-labelledby="galleryTitle">
+      <div class="gallery-heading"><h2 id="galleryTitle">作品画廊</h2><div class="gallery-heading-actions"><span id="galleryPoints" role="status" hidden></span><button id="galleryClose" type="button">返回画板 →</button></div></div>
+      <div class="gallery-navigation">
+        <div id="galleryFilters" class="gallery-filters" aria-label="筛选公开作品"><button type="button" class="active" data-gallery-filter="all">全部作品</button><button type="button" data-gallery-filter="free">免费分享</button><button type="button" data-gallery-filter="points">积分作品</button><button type="button" data-gallery-filter="view">仅供浏览</button></div>
+        <div class="gallery-user-actions"><button type="button" id="galleryMine">我的作品</button><button type="button" id="galleryLiked">点赞过的作品</button><button type="button" id="galleryPublish">＋ 分享当前作品</button></div>
+      </div>
+      <p class="gallery-fee-note">免费作品与自己的作品每次下载收取 1 积分维护费，用于服务器与带宽维护，并防止有人恶意下载大量作品造成服务器拥挤。积分作品向作者支付标价，平台收取 1% 维护费。仅供浏览的作品只能查看无法下载。</p>
       <p id="galleryStatus" role="status"></p><div class="gallery-grid" id="galleryGrid"></div>
-      <form id="galleryPublishForm" hidden><label>作品名称<input id="galleryWorkTitle" maxlength="80" required></label><label><input type="checkbox" id="galleryRights" required> 我有权分享此作品，同意公开展示图纸及允许用户打开使用（不上传原始照片）。</label><button class="primary" type="submit">确认分享</button></form>
+      <form id="galleryPublishForm" hidden><h3>确认作品与分享设置</h3><canvas id="galleryPublishPreview" aria-label="待分享图纸预览"></canvas><label>作品名称<input id="galleryWorkTitle" maxlength="80" required></label><div class="gallery-form-grid"><label>可见范围<select id="galleryVisibility"><option value="published">公开展示</option><option value="hidden">仅自己可见 · 保存三天</option></select></label><label>下载规则<select id="galleryDownloadMode"><option value="free">免费分享（收取 1 积分维护费）</option><option value="points">支付积分下载</option><option value="view">仅公开浏览，不可下载</option></select></label><label>积分价格<input id="galleryPrice" type="number" min="1" max="100000" step="1" value="1" required></label></div><small>为了节省存储资源，私有作品三天后自动删除；到期前可重新公开。</small><label class="gallery-rights"><input type="checkbox" id="galleryRights" required> 我拥有分享此作品的权利，同意按以上规则展示与提供图纸。</label><div class="gallery-form-actions"><button id="galleryPublishCancel" type="button">取消</button><button class="primary" type="submit">确认保存并上传</button></div></form>
     </section>
   </div>
+  <dialog id="galleryPreviewDialog" class="gallery-preview-dialog" aria-labelledby="galleryPreviewTitle"><div class="gallery-preview-heading"><h2 id="galleryPreviewTitle">作品预览</h2><button id="galleryPreviewClose" type="button" aria-label="关闭作品预览">×</button></div><div class="gallery-preview-image"><canvas id="galleryPreviewCanvas" aria-label="作品画面预览"></canvas></div></dialog>
   <script src="./mard-palette.js?v=20261028-mard291"></script>
-  <script src="./app.js?v=20261030-layout-v61"></script>
-  <script src="./account.js?v=20261027-pro-editor-v47"></script>
-  <script src="./gallery.js?v=20261028-studio-v49"></script>
+  <script src="./app.js?v=20261101-pdf-v71"></script>
+  <script src="./account.js?v=20261101-checkout-v72"></script>
+  <script src="./gallery.js?v=20261101-gallery-v69"></script>
 </body>
 </html>

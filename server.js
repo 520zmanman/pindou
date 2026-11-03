@@ -80,6 +80,7 @@ catch (error) {
 
 const databasePath = path.join(dataDirectory, 'pindou.db');
 const db = new DatabaseSync(databasePath);
+const pointsStore = require('./points-store.js').createPointsStore(db);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -792,7 +793,7 @@ function publicUser(row) {
   if (!row) return null;
   return {
     id: Number(row.id), username: row.username, email: row.email || null, emailVerified: Boolean(row.email_verified),
-    phone: row.phone || null, phoneVerified: Boolean(row.phone_verified), balanceFen: Number(row.balance_fen || 0),
+    phone: row.phone || null, phoneVerified: Boolean(row.phone_verified), balanceFen: Number(row.balance_fen || 0), points: pointsStore.balance(Number(row.id))/100,
     role: row.role || 'user', isSuperuser: row.role === 'superuser', createdAt: Number(row.created_at),
     hasSecurityQuestion: Boolean(row.security_question_id && row.security_answer_hash && row.security_answer_salt)
   };
@@ -1561,6 +1562,7 @@ async function handleAccountPayment(req, res, pathname, searchParams) {
           ocr.match.epoch, now, now, order.kind === 'own_pdf' ? now + downloadAccessLifetime : null, order.id, Number(user.id)
         );
         if (!paid.changes) throw Object.assign(new Error('订单状态已经改变，请刷新后重试'), { statusCode: 409 });
+        if(order.kind==='own_pdf')pointsStore.reward(Number(user.id),order.id);
         if (order.kind === 'recharge') {
           const consumed = statements.consumeRechargeOrder.run(now, order.id, Number(user.id));
           if (!consumed.changes) throw Object.assign(new Error('充值订单状态异常'), { statusCode: 409 });
@@ -1600,6 +1602,7 @@ async function handleAccountPayment(req, res, pathname, searchParams) {
       const debited = statements.debitUserBalance.run(pricing.memberOwnPdfFen, now, Number(user.id), pricing.memberOwnPdfFen);
       if (!debited.changes) throw Object.assign(new Error(`余额不足，请先充值；本次需要 ${Number(pricing.memberOwnPdfFen / 100).toFixed(2)} 元`), { statusCode: 409 });
       statements.insertPaidAccountOrder.run(id, Number(user.id), pricing.memberOwnPdfFen, now, now, now + 3 * 24 * 60 * 60 * 1000, now + downloadAccessLifetime);
+      pointsStore.reward(Number(user.id),id);
       updated = statements.userByUsername.get(user.username);
       statements.insertWalletLedger.run(Number(user.id), -pricing.memberOwnPdfFen, Number(updated.balance_fen), 'own_pdf_download', id, now);
     });
@@ -1722,10 +1725,15 @@ let galleryHandler;
 async function handleApi(req, res, pathname, searchParams) {
   if (!sameOrigin(req)) return respondJson(req, res, 403, { error: '请求来源不受信任' });
   if (pathname === '/api/gallery' || pathname.startsWith('/api/gallery/')) {
-    galleryHandler ||= require('./gallery-store.js').createGalleryHandler({db,currentUser,respondJson,readJson,allowAttempt});
+    galleryHandler ||= require('./gallery-store.js').createGalleryHandler({db,currentUser,respondJson,readJson,allowAttempt,points:pointsStore});
     return galleryHandler(req,res,pathname,searchParams);
   }
   if (pathname === '/api/health' && req.method === 'GET') return respondJson(req, res, 200, { ok: true, database: 'sqlite' });
+  if (pathname === '/api/points' && req.method === 'GET') {
+    const user=currentUser(req);if(!user)return respondJson(req,res,401,{error:'请先登录'});
+    const entries=db.prepare('SELECT delta,kind,created_at FROM point_ledger WHERE user_id=? ORDER BY id DESC LIMIT 50').all(user.id);
+    return respondJson(req,res,200,{points:pointsStore.balance(user.id)/100,entries:entries.map(e=>({points:e.delta/100,kind:e.kind,createdAt:e.created_at}))});
+  }
   if (pathname === '/api/billing/config' && req.method === 'GET') return respondJson(req, res, 200, { pricing, rechargeEnabled: true, rechargeMinimumFen: 100, rechargeMaximumFen: 50000, wechatPay: wechatPayStatus(), rewardCode: rewardCodeStatus() });
   if (pathname === '/api/payments/reward-code/image' && req.method === 'GET') {
     const reward = rewardCodeStatus();
@@ -1789,6 +1797,7 @@ function cleanupExpired() {
   statements.expireStaleAccountDownloadAccess.run(now, now);
   statements.deleteOldAccountOrders.run(now - 30 * 24 * 60 * 60 * 1000);
 }
+galleryHandler = require('./gallery-store.js').createGalleryHandler({db,currentUser,respondJson,readJson,allowAttempt,points:pointsStore});
 cleanupExpired();
 const cleanupTimer = setInterval(cleanupExpired, 60 * 60 * 1000);
 cleanupTimer.unref();

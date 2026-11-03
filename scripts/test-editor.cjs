@@ -145,3 +145,6 @@ check('small canvas leaves toolbar in normal flow', `!toolbarNeedsDock(280,120,8
 check('large canvas docks toolbar for page scrolling', `toolbarNeedsDock(900,120,819,68)`);
 check('toolbar docking adapts to short viewports', `toolbarNeedsDock(280,120,450,68)`);
 console.log('All 67 editor regression tests passed.');
+check('grid larger than opaque source never creates empty rows', `const old=document.createElement;document.createElement=()=>({width:0,height:0,getContext:()=>({drawImage(){},getImageData:()=>({data:new Uint8ClampedArray([255,0,0,255,0,0,255,255])})})});const samples=averageOriginalRegions({naturalWidth:2,naturalHeight:1},8,8);const cartoon=averageOriginalRegions({naturalWidth:2,naturalHeight:1},8,8,true);document.createElement=old;samples.every(Boolean)&&cartoon.every(Boolean)`);
+check('larger grid retains truly transparent source pixels', `const old=document.createElement;document.createElement=()=>({width:0,height:0,getContext:()=>({drawImage(){},getImageData:()=>({data:new Uint8ClampedArray([255,0,0,0])})})});const samples=averageOriginalRegions({naturalWidth:1,naturalHeight:1},8,8);document.createElement=old;samples.every(v=>v===null)`);
+console.log('All 69 editor regression tests passed.');

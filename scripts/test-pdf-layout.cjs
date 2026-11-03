@@ -1,0 +1,7 @@
+'use strict';
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
+const color={hex:'#FFFFFF',rgb:[255,255,255],code:'A1'};
+const ctx=vm.createContext({TextEncoder,Blob,Uint8Array,state:{cols:600,rows:600,cells:Array(360000).fill(color),exportSettings:{showSymbols:true,minorColor:'#999999',majorColor:'#FF0000',interval:10}},ui:{showGrid:{checked:true},majorGridStyle:{value:'solid'}},luminance:()=>255});
+vm.runInContext(source.slice(source.indexOf('function bytesFromText('),source.indexOf('function jpegBytes('))+source.slice(source.indexOf('function pdfFromPages('),source.indexOf('function renderPdfTile('))+source.slice(source.indexOf('function wholePdfPage('),source.indexOf('async function generatePaidPdf(')),ctx);
+(async()=>{const page=vm.runInContext('wholePdfPage()',ctx);assert.equal(page.pageWidth,6072);assert.equal(page.pageHeight,6100);assert(page.content.length>0);ctx.page=page;const blob=vm.runInContext('pdfFromPages([page])',ctx),pdf=await blob.text();assert(pdf.includes('/Count 1'));assert(pdf.includes('/MediaBox [0 0 6072 6100]'));assert(pdf.includes('/BaseFont /Helvetica'));assert(!pdf.includes('/Subtype /Image'),'whole sheet is vector, not low-resolution image');assert(pdf.includes('(A1)'));console.log('PASS 600x600 whole-sheet PDF: one vector page, dimensions, symbols and valid page tree');})().catch(error=>{console.error(error);process.exitCode=1;});

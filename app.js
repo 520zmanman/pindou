@@ -315,7 +315,13 @@ function averageOriginalRegions(image, cols, rows, dominant = false) {
       sumR[cell] += data[i] * alpha; sumG[cell] += data[i + 1] * alpha; sumB[cell] += data[i + 2] * alpha; weights[cell] += alpha;
     }
   }
-  return Array.from({ length: count }, (_, i) => dominant ? (winners[i]?winners[i].slice(0,3).map(v=>v/winners[i][3]):null) : weights[i] ? [sumR[i] / weights[i], sumG[i] / weights[i], sumB[i] / weights[i]] : null);
+  return Array.from({ length: count }, (_, i) => {
+    if(!weights[i]&&(cols>canvas.width||rows>canvas.height)){
+      const x=Math.min(canvas.width-1,Math.floor((i%cols+.5)*canvas.width/cols)),y=Math.min(canvas.height-1,Math.floor((Math.floor(i/cols)+.5)*canvas.height/rows)),p=(y*canvas.width+x)*4;
+      return data[p+3]/255>=.05?[data[p],data[p+1],data[p+2]]:null;
+    }
+    return dominant ? (winners[i]?winners[i].slice(0,3).map(v=>v/winners[i][3]):null) : weights[i] ? [sumR[i] / weights[i], sumG[i] / weights[i], sumB[i] / weights[i]] : null;
+  });
 }
 
 // 将区域平均色按感知颜色距离分层。颜色数量是上限，实际颜色可能更少。
@@ -1014,6 +1020,11 @@ function pdfFromPages(pages) {
   const objects = [bytesFromText('<< /Type /Catalog /Pages 2 0 R >>'), null];
   const pageIds = [];
   pages.forEach(page => {
+    if(page.content){
+      const pageId=objects.length+1,contentId=pageId+1;pageIds.push(pageId);
+      objects.push(bytesFromText(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.pageWidth} ${page.pageHeight}] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents ${contentId} 0 R >>`));
+      objects.push(joinBytes([bytesFromText(`<< /Length ${page.content.length} >>\nstream\n`),page.content,bytesFromText('\nendstream')]));return;
+    }
     const pageWidth = page.pageWidth || defaultPageWidth, pageHeight = page.pageHeight || defaultPageHeight;
     const pageId = objects.length + 1, contentId = pageId + 1, imageId = pageId + 2;
     pageIds.push(pageId);
@@ -1100,7 +1111,7 @@ function renderPdfTile(startCol, startRow, tileCols, tileRows, pageNumber, pageC
 }
 
 function renderPdfLegend() {
-  const canvas = document.createElement('canvas'); canvas.width = 1500; canvas.height = 1050;
+  const canvas = document.createElement('canvas'); canvas.width = 1500; canvas.height = Math.max(1050,170+Math.ceil(state.used.length/4)*52);
   const ctx = canvas.getContext('2d'), padding = 58, columns = 4, gap = 18;
   const itemWidth = (canvas.width - padding * 2 - gap * (columns - 1)) / columns, itemHeight = 52;
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1120,13 +1131,34 @@ function renderPdfLegend() {
   return canvas;
 }
 
-async function generatePaidPdf() {
+function wholePdfPage(){
+  const cell=10,left=36,bottom=36,width=state.cols*cell,height=state.rows*cell;
+  const commands=['1 1 1 rg',`0 0 ${width+72} ${height+100} re f`];
+  const rgb=hex=>[1,3,5].map(i=>(parseInt(hex.slice(i,i+2),16)/255).toFixed(3)).join(' ');
+  for(let y=0;y<state.rows;y++){
+    for(let x=0;x<state.cols;){const color=state.cells[y*state.cols+x];if(!color){x++;continue;}let end=x+1;while(end<state.cols&&state.cells[y*state.cols+end]?.hex===color.hex)end++;
+      commands.push(`${rgb(color.hex)} rg ${left+x*cell} ${bottom+(state.rows-y-1)*cell} ${(end-x)*cell} ${cell} re f`);x=end;}
+  }
+  const grid=(interval,color,lineWidth)=>{commands.push(`${rgb(color)} RG ${lineWidth} w`);for(let x=0;x<=state.cols;x++)if(x===state.cols||x%interval===0)commands.push(`${left+x*cell} ${bottom} m ${left+x*cell} ${bottom+height} l`);for(let y=0;y<=state.rows;y++)if(y===state.rows||y%interval===0)commands.push(`${left} ${bottom+height-y*cell} m ${left+width} ${bottom+height-y*cell} l`);commands.push('S');};
+  if(ui.showGrid.checked)grid(1,state.exportSettings.minorColor,.25);
+  if(state.exportSettings.interval>0){if(ui.majorGridStyle.value==='dashed')commands.push('[3 2] 0 d');grid(state.exportSettings.interval,state.exportSettings.majorColor,.65);commands.push('[] 0 d');}
+  const text=(value,x,y,size=4)=>commands.push(`BT /F1 ${size} Tf 1 0 0 1 ${x} ${y} Tm (${value}) Tj ET`);
+  if(state.exportSettings.showSymbols)for(let y=0;y<state.rows;y++)for(let x=0;x<state.cols;x++){const color=state.cells[y*state.cols+x];if(!color)continue;const code=String(color.code).replace(/[^A-Z0-9]/g,'');const size=Math.min(4,8/Math.max(1,code.length*.6));commands.push(luminance(color.rgb)>155?'0.12 0.12 0.12 rg':'1 1 1 rg');text(code,left+x*cell+(cell-code.length*size*.56)/2,bottom+(state.rows-y-1)*cell+3.5,size);}
+  commands.push('0.25 0.25 0.25 rg');
+  for(let x=0;x<state.cols;x++){text(x+1,left+x*cell+2,bottom-10);text(x+1,left+x*cell+2,bottom+height+7);}
+  for(let y=0;y<state.rows;y++){text(y+1,left-22,bottom+(state.rows-y-1)*cell+3);text(y+1,left+width+6,bottom+(state.rows-y-1)*cell+3);}
+  text(`MARD - ${state.cols} x ${state.rows}`,left,bottom+height+35,12);
+  return {content:bytesFromText(commands.join('\n')),pageWidth:width+72,pageHeight:height+100};
+}
+async function generatePaidPdf({yieldPages=true}={}) {
   recalculateUsed();
+  const whole=document.getElementById('pdfLayout').value!=='tiled';
   const tileSize = 160, across = Math.ceil(state.cols / tileSize), down = Math.ceil(state.rows / tileSize);
   const tilePageCount = across * down, pages = [];
-  showToast(`正在生成 ${tilePageCount + 1} 页高清 PDF…`);
+  showToast(whole?'正在生成整体矢量 PDF…':`正在生成 ${tilePageCount + 1} 页高清 PDF…`);
+  if(whole)pages.push(wholePdfPage());
   let pageNumber = 0;
-  for (let startRow = 0; startRow < state.rows; startRow += tileSize) {
+  for (let startRow = 0; !whole && startRow < state.rows; startRow += tileSize) {
     for (let startCol = 0; startCol < state.cols; startCol += tileSize) {
       pageNumber++;
       const canvas = renderPdfTile(startCol, startRow, Math.min(tileSize, state.cols - startCol), Math.min(tileSize, state.rows - startRow), pageNumber, tilePageCount);
@@ -1135,16 +1167,16 @@ async function generatePaidPdf() {
         pageWidth: canvas.width * .58 + 36, pageHeight: canvas.height * .58 + 36
       });
       canvas.width = 1; canvas.height = 1;
-      if (pageNumber % 2 === 0) await new Promise(resolve => requestAnimationFrame(resolve));
+      if (yieldPages && pageNumber % 2 === 0) await new Promise(resolve => requestAnimationFrame(resolve));
     }
   }
   const legend = renderPdfLegend();
   pages.push({ image: jpegBytes(legend), pixelWidth: legend.width, pixelHeight: legend.height });
   legend.width = 1; legend.height = 1;
   const blob = pdfFromPages(pages), url = URL.createObjectURL(blob);
-  download(url, `${state.fileName.replace(/\.[^.]+$/, '')}-拼豆图纸.pdf`);
+  download(url, `${state.fileName.replace(/\.[^.]+$/, '')}-拼豆图纸-${whole?'整体版':'分页版'}.pdf`);
   setTimeout(() => URL.revokeObjectURL(url), 30000);
-  showToast(`高清 PDF 已生成：${tilePageCount} 张图纸页 + 1 张配色页`);
+  showToast(`高清 PDF 已生成：${whole?'1 张整体图纸':tilePageCount+' 张图纸页'} + 1 张配色页`);
 }
 
 function renderPaletteGroups() {

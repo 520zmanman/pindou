@@ -1,6 +1,20 @@
 'use strict';
 
 (() => {
+  function syncCheckoutPurpose(recharge){
+    document.getElementById('checkoutPurpose').textContent=recharge?'本次充值':'本次下载';
+    document.getElementById('checkoutEyebrow').textContent=recharge?'账户充值':'下载结算';
+  }
+  function confirmReplaceOrder(){
+    return new Promise(resolve=>{
+      const dialog=document.createElement('dialog');dialog.className='gallery-confirm-dialog payment-confirm-dialog';
+      const title=document.createElement('h3');title.textContent='更换付款订单？';
+      const copy=document.createElement('p');copy.textContent='更换后，当前订单将立即失效，并重新开始 2 分钟付款倒计时。\n\n如果已经付款，请取消并继续上传原订单的付款截图，不要更换订单或重复付款。';
+      const actions=document.createElement('div');const cancel=document.createElement('button'),confirm=document.createElement('button');cancel.textContent='保留当前订单';confirm.textContent='确认更换';
+      const finish=value=>{dialog.close();dialog.remove();resolve(value);};cancel.onclick=()=>finish(false);confirm.onclick=()=>finish(true);
+      dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});actions.append(cancel,confirm);dialog.append(title,copy,actions);document.body.append(dialog);dialog.showModal();cancel.focus();
+    });
+  }
   const authUi = {
     button: document.getElementById('accountButton'),
     modal: document.getElementById('authModal'),
@@ -131,6 +145,7 @@
   };
 
   let currentUser = null;
+  window.addEventListener('pindou-points-updated',event=>{if(currentUser?.id!==event.detail?.userId)return;currentUser.points=event.detail.points;document.getElementById('accountPoints').textContent=`${Number(currentUser.points||0).toFixed(2)} 积分`;});
   let cloudDraft = null;
   let cloudSaveTimer = null;
   let pendingDownload = null;
@@ -246,6 +261,7 @@
 
     authUi.name.textContent = currentUser.username;
     authUi.balance.textContent = currentUser.isSuperuser ? '全部免费' : formatFen(currentUser.balanceFen);
+    document.getElementById('accountPoints').textContent=`${Number(currentUser.points||0).toFixed(2)} 积分`;
     authUi.plan.textContent = '';
     if (currentUser.isSuperuser) authUi.binding.textContent = '超级权限测试账户';
     else if (currentUser.email) authUi.binding.textContent = currentUser.emailVerified ? `密保邮箱：${currentUser.email}` : `密保邮箱待验证：${currentUser.email}`;
@@ -358,6 +374,7 @@
       return;
     }
     checkoutMode = 'download';
+    syncCheckoutPurpose(false);
     pendingDownload = typeof onAuthorized === 'function' ? onAuthorized : null;
     const price = currentUser ? pricing.memberOwnPdfFen : pricing.guestOwnPdfFen;
     authUi.checkoutPrice.textContent = currentUser && currentUser.isSuperuser ? '免费' : formatFen(price);
@@ -607,6 +624,7 @@
 
   async function openAccountRewardCheckout(kind, amountFen, replacePending = false) {
     if (!currentUser) { closeCheckout(); openModal(); return; }
+    syncCheckoutPurpose(kind==='recharge');
     const trigger = kind === 'recharge' ? authUi.createRechargeOrder : authUi.memberRewardCheckout;
     trigger.disabled = true;
     try {
@@ -626,6 +644,7 @@
   function openRechargeCheckout() {
     if (!currentUser || currentUser.isSuperuser) return;
     checkoutMode = 'recharge'; pendingDownload = null;
+    syncCheckoutPurpose(true);
     closeModal();
     authUi.checkoutTitle.textContent = '充值账户余额';
     authUi.checkoutPrice.textContent = formatFen(Math.round(Number(authUi.rechargeAmount.value || 10) * 100));
@@ -901,7 +920,7 @@
   authUi.replacePaymentOrder.addEventListener('click', async () => {
     const order = paymentOwner === 'guest' ? guestOrder : accountOrder;
     if (!order || !['pending', 'rejected'].includes(order.status)) return;
-    if (!window.confirm('更换订单后，当前订单将立即失效，并重新开始 2 分钟付款倒计时。确定更换吗？')) return;
+    if (!await confirmReplaceOrder()) return;
     authUi.replacePaymentOrder.disabled = true;
     try {
       if (paymentOwner === 'guest') await openRewardCheckout(true);
