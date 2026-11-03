@@ -3,6 +3,8 @@
 ## 当前部署
 
 - 网站：`http://192.168.18.242:4173/`（同一局域网）
+- 公网 HTTPS：`https://jiffy-probing-recovery.ngrok-free.dev/`
+- 公网服务：`pindou-tunnel.service`，开机自启；独立配置及管理端口 4091，不改动 OpenClaw ngrok。
 - SSH：`ssh pi@192.168.18.242`
 - 项目：`/home/pi/pindou`
 - Samba：`\\192.168.18.242\pi\pindou`
@@ -12,7 +14,7 @@
 
 打开网站后使用原账号登录。更换网站地址后，原浏览器 IndexedDB 本地草稿不会自动迁移；已迁移的账号云草稿可以登录后恢复，画廊作品仍在。
 
-电脑可以关机，树莓派需保持开机和网络连接。建议在路由器中为树莓派保留当前 IP。当前没有配置公网访问或 HTTPS，请只在可信局域网使用。
+电脑可以关机，树莓派需保持开机和网络连接。建议在路由器中为树莓派保留当前 IP。公网入口使用 ngrok HTTPS，可能出现免费服务提示页及流量限制。
 
 ## 日常维护（在 SSH 终端执行）
 
@@ -29,7 +31,16 @@ journalctl -u pindou -n 100 --no-pager
 journalctl -u pindou -f
 ```
 
-改密码：登录 SSH 后执行 `passwd`，按提示输入旧密码和新密码。部署专用密钥目前尚未通过 SSH 认证，日常可先使用密码登录。
+公网启停（只操作豆格，不影响 OpenClaw）：
+
+```bash
+sudo systemctl status pindou-tunnel --no-pager
+sudo systemctl restart pindou-tunnel
+sudo systemctl stop pindou-tunnel
+sudo systemctl start pindou-tunnel
+```
+
+改密码：登录 SSH 后执行 `passwd`，按提示输入旧密码和新密码。专用密钥已通过客户端解锁验证；日常也可使用密码登录。不要公开私钥或 ngrok 配置。
 
 ## 手动备份
 
