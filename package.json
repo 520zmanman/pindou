@@ -2,6 +2,7 @@
   "name": "pindou",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "拼豆图纸生成器本地服务",
   "scripts": {
     "start": "node server.js",

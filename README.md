@@ -1,10 +1,27 @@
 # 豆格 · 拼豆图纸生成器
 
-一个完全在浏览器本地运行的图片转拼豆图纸工具。图片不会上传到服务器。
+图片转拼豆图纸工具，支持 MARD 色卡、图层编辑、PDF 图纸、账号云草稿与作品画廊。图片转换在浏览器执行；登录后启用云草稿会上传原图和编辑数据，分享画廊作品会上传合成图纸。
+
+## 在线演示
+
+**[打开豆格 · 树莓派在线演示](https://jiffy-probing-recovery.ngrok-free.dev/)**
+
+演示由树莓派运行，通过 ngrok 提供 HTTPS 访问；可能出现免费服务提示页、流量限制或暂时离线。上传截图校验问题仍在排查，请勿为重试而重复付款。赞赏码 OCR 无法确认真实到账，不适合作为正式商业支付验证。
+
+## 开源许可
+
+项目自身程序代码采用 [MIT License](./LICENSE)。MARD 色卡数据另按 CC BY 4.0 使用，来源、署名及修改说明见 [PALETTE_SOURCES.md](./PALETTE_SOURCES.md)；第三方依赖遵循各自许可证。开源许可不涵盖站点用户作品、私人数据、密钥或第三方商标。
 
 ## 本地部署
 
-项目自带一个只使用 Node.js 内置模块的服务器，无需执行 `npm install`。账号功能使用 Node.js 内置 SQLite，建议使用 Node.js 24 或更新版本。
+需要 Node.js 22 或更新版本，建议使用 Node.js 24。首次启动前安装锁定的 OCR 依赖：
+
+```bash
+npm ci
+npm start
+```
+
+账号功能使用 Node.js 内置 SQLite。树莓派部署与维护见 [RASPBERRY_PI.md](./RASPBERRY_PI.md)。
 
 Windows 用户可以直接双击 `start-local.bat`。服务器启动后，在浏览器打开：
 
